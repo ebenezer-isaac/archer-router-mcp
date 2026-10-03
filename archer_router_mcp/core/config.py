@@ -9,16 +9,15 @@ and the rule, never the offending value (it may be a password).
 from __future__ import annotations
 
 import ipaddress
-import logging
 import os
 import re
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, field_validator
 
 from .errors import ConfigError
-from .transport import normalize_fingerprint
 
 DEVICE_ENV_SUFFIXES: dict[str, str] = {
     "HOST": "host",
@@ -26,7 +25,6 @@ DEVICE_ENV_SUFFIXES: dict[str, str] = {
     "USERNAME": "username",
     "PASSWORD": "password",
     "VERIFY_TLS": "verify_tls",
-    "TLS_FINGERPRINT_SHA256": "tls_fingerprint_sha256",
     "TIMEOUT_SECONDS": "timeout_seconds",
     "ALLOW_WRITES": "allow_writes",
     "LOGIN_DISABLED": "login_disabled",
@@ -34,42 +32,45 @@ DEVICE_ENV_SUFFIXES: dict[str, str] = {
     "DRY_RUN": "dry_run",
     "BACKUP_DIR": "backup_dir",
     "STATE_DIR": "state_dir",
-    "FORCE_SESSION_TAKEOVER": "force_session_takeover",
-    "ENVELOPE": "envelope",
-    "PRESENCE_MAX_MB": "presence_max_mb",
-    "PRESENCE_INTERVAL_S": "presence_interval_s",
-    "PROTECTED_MACS": "protected_macs",
-    "REBOOT_MIN_INTERVAL_S": "reboot_min_interval_s",
+    "TLS_FINGERPRINT_SHA256": "tls_fingerprint_sha256",
+    "RTSP_PORT": "rtsp_port",
+    "RTSP_USERNAME": "rtsp_username",
+    "RTSP_PASSWORD": "rtsp_password",
+    "EXPORT_DIR": "export_dir",
+    "EXPORT_MAX_MINUTES": "export_max_minutes",
+    "EXPORT_RETENTION_DAYS": "export_retention_days",
+    "FFMPEG": "ffmpeg_path",
 }
 GLOBAL_ENV_SUFFIXES: dict[str, str] = {
     "TRANSPORT": "mcp_transport",
     "HOST": "mcp_host",
     "PORT": "mcp_port",
-    "LOG_LEVEL": "mcp_log_level",
 }
 
 _HOST_LABEL = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 _NUMERIC_DOTTED = re.compile(r"^[\d.]+$")
-_MAC_HEX12 = re.compile(r"^[0-9a-f]{12}$")
-_MAC_SEP_CHARS = re.compile(r"[\s:.\-]")
 _USERNAME = re.compile(r"^[\x21-\x7e]{1,64}$")
 _CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
 _PREFIX = re.compile(r"^[A-Z][A-Z0-9]*_(?:[A-Z0-9]+_)*$")
+_HEX64 = re.compile(r"[0-9a-f]{64}")
 _HOST_ERROR = "must be a hostname or IP address (no scheme, port or path)"
 
-Port = Annotated[int, Field(ge=1, le=65535)]
 
+def normalise_fingerprint(value: object) -> str:
+    """Normalise a SHA-256 certificate fingerprint: strip colons/whitespace, lower-case.
 
-def canonical_mac(value: str) -> str | None:
-    """Return ``HH:HH:HH:HH:HH:HH`` upper-case, or ``None`` if not a MAC.
-
-    Device-agnostic (the device layer has its own copy for row parsing); kept here
-    so settings validation does not depend on a device module.
+    Accepts the common ``AA:BB:...`` colon-separated form and bare hex, any case.
+    Raises ``ValueError`` unless the result is exactly 64 hexadecimal characters.
     """
-    compact = _MAC_SEP_CHARS.sub("", value.strip()).lower()
-    if not _MAC_HEX12.fullmatch(compact):
-        return None
-    return ":".join(compact[i : i + 2] for i in range(0, 12, 2)).upper()
+    if not isinstance(value, str):
+        raise ValueError("must be a hex string")
+    cleaned = re.sub(r"[\s:]", "", value).lower()
+    if not _HEX64.fullmatch(cleaned):
+        raise ValueError("must be a SHA-256 fingerprint: 64 hex characters, optional colons")
+    return cleaned
+
+
+Port = Annotated[int, Field(ge=1, le=65535)]
 
 
 def validate_host(value: object) -> str:
@@ -100,78 +101,41 @@ class DeviceSettings(BaseModel):
     username: str = "admin"
     password: SecretStr = Field(min_length=1, max_length=128)
     verify_tls: bool = False
-    tls_fingerprint_sha256: str | None = None
     timeout_seconds: float = Field(default=10.0, ge=1.0, le=120.0, allow_inf_nan=False)
     allow_writes: bool = False
     login_disabled: bool = False
     max_login_failures: int = Field(default=1, ge=1, le=5)
     dry_run: bool = False
     backup_dir: str = Field(default="backups", min_length=1, max_length=1024)
-    state_dir: str | None = None
-    force_session_takeover: bool = False
-    envelope: Literal["auto", "https-plain", "http-encrypted"] = "auto"
-    # Presence history (R3): JSON-lines log size cap, and the in-server sampler
-    # interval. An interval of 0 disables the background sampler.
-    presence_max_mb: float = Field(default=20.0, gt=0.0, le=1024.0, allow_inf_nan=False)
-    presence_interval_s: float = Field(default=0.0, ge=0.0, le=86400.0, allow_inf_nan=False)
-    # Write safety (R4): the server's and owner's own devices. REQUIRED (non-empty)
-    # whenever writes are enabled; any block/limit/isolate/reservation-remove that
-    # targets one of these MACs is refused. Parsed from a comma/space-separated list.
-    protected_macs: tuple[str, ...] = ()
-    # Minimum seconds between accepted reboots (persisted under STATE_DIR).
-    reboot_min_interval_s: float = Field(default=900.0, ge=0.0, le=86400.0, allow_inf_nan=False)
+    state_dir: str | None = Field(default=None, max_length=1024)
+    tls_fingerprint_sha256: str | None = None
+    # --- media / RTSP export (used only by device packages that expose RTSP; other
+    # packages simply never set these variables). Defaults stay generic so this
+    # template file remains device-agnostic. ---
+    rtsp_port: Port = 554
+    rtsp_username: str | None = None
+    rtsp_password: SecretStr | None = Field(default=None, max_length=128)
+    export_dir: str = Field(default="exports", min_length=1, max_length=1024)
+    export_max_minutes: int = Field(default=60, ge=1, le=1440)
+    export_retention_days: int = Field(default=7, ge=1, le=3650)
+    ffmpeg_path: str | None = Field(default=None, max_length=1024)
+
+    @field_validator("tls_fingerprint_sha256", mode="before")
+    @classmethod
+    def _validate_fingerprint(cls, value: object) -> str | None:
+        return None if value is None else normalise_fingerprint(value)
+
+    @field_validator("state_dir")
+    @classmethod
+    def _validate_state_dir(cls, value: str | None) -> str | None:
+        if value is not None and (_CONTROL_CHARS.search(value) or not value.strip()):
+            raise ValueError("must be a non-empty path without control characters")
+        return value
 
     @field_validator("host", mode="before")
     @classmethod
     def _validate_host(cls, value: object) -> str:
         return validate_host(value)
-
-    @field_validator("tls_fingerprint_sha256", mode="before")
-    @classmethod
-    def _validate_fingerprint(cls, value: object) -> str | None:
-        if value is None:
-            return None
-        if not isinstance(value, str):
-            raise ValueError("must be a string")
-        if not value.strip():
-            return None
-        return normalize_fingerprint(value)
-
-    @field_validator("state_dir", mode="before")
-    @classmethod
-    def _validate_state_dir(cls, value: object) -> str | None:
-        if value is None:
-            return None
-        if not isinstance(value, str):
-            raise ValueError("must be a string")
-        text = value.strip()
-        if not text:
-            return None
-        if _CONTROL_CHARS.search(text):
-            raise ValueError("must not contain control characters")
-        if len(text) > 1024:
-            raise ValueError("must be at most 1024 characters")
-        return text
-
-    @field_validator("protected_macs", mode="before")
-    @classmethod
-    def _validate_protected_macs(cls, value: object) -> tuple[str, ...]:
-        if value is None or value == "":
-            return ()
-        if isinstance(value, str):
-            tokens = [tok for tok in re.split(r"[,\s]+", value.strip()) if tok]
-        elif isinstance(value, (list, tuple)):
-            tokens = [str(tok) for tok in value]
-        else:
-            raise ValueError("must be a comma- or space-separated list of MAC addresses")
-        out: list[str] = []
-        for tok in tokens:
-            mac = canonical_mac(tok)
-            if mac is None:
-                raise ValueError("contains an entry that is not a valid MAC address")
-            if mac not in out:
-                out.append(mac)
-        return tuple(out)
 
     @field_validator("username")
     @classmethod
@@ -187,10 +151,31 @@ class DeviceSettings(BaseModel):
             raise ValueError("must not contain control characters")
         return value
 
-    @field_validator("backup_dir")
+    @field_validator("backup_dir", "export_dir")
     @classmethod
-    def _validate_backup_dir(cls, value: str) -> str:
+    def _validate_dir(cls, value: str) -> str:
         if _CONTROL_CHARS.search(value):
+            raise ValueError("must not contain control characters")
+        return value
+
+    @field_validator("ffmpeg_path")
+    @classmethod
+    def _validate_ffmpeg_path(cls, value: str | None) -> str | None:
+        if value is not None and _CONTROL_CHARS.search(value):
+            raise ValueError("must not contain control characters")
+        return value
+
+    @field_validator("rtsp_username")
+    @classmethod
+    def _validate_rtsp_username(cls, value: str | None) -> str | None:
+        if value is not None and not _USERNAME.fullmatch(value):
+            raise ValueError("must be 1-64 printable ASCII characters without spaces")
+        return value
+
+    @field_validator("rtsp_password")
+    @classmethod
+    def _validate_rtsp_password(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is not None and _CONTROL_CHARS.search(value.get_secret_value()):
             raise ValueError("must not contain control characters")
         return value
 
@@ -198,6 +183,27 @@ class DeviceSettings(BaseModel):
     def base_url(self) -> str:
         host = f"[{self.host}]" if ":" in self.host else self.host
         return f"https://{host}:{self.port}"
+
+    @property
+    def host_for_url(self) -> str:
+        """The host wrapped in brackets if it is an IPv6 literal (for URLs)."""
+        return f"[{self.host}]" if ":" in self.host else self.host
+
+    @property
+    def effective_rtsp_username(self) -> str:
+        """RTSP username, defaulting to the device login username."""
+        return self.rtsp_username or self.username
+
+    @property
+    def effective_rtsp_password(self) -> str:
+        """RTSP password (plaintext), defaulting to the device login password."""
+        secret = self.rtsp_password or self.password
+        return secret.get_secret_value()
+
+    @property
+    def export_path(self) -> Path:
+        """The export directory with ``~`` expanded. Not created here."""
+        return Path(self.export_dir).expanduser()
 
     def env_name(self, suffix: str) -> str:
         return f"{self.env_prefix}{suffix}"
@@ -209,7 +215,6 @@ class GlobalSettings(BaseModel):
     mcp_transport: Literal["stdio", "streamable-http"] = "stdio"
     mcp_host: str = "127.0.0.1"
     mcp_port: Port = 8765
-    mcp_log_level: str = "INFO"
 
     @field_validator("mcp_host")
     @classmethod
@@ -219,14 +224,6 @@ class GlobalSettings(BaseModel):
         except ValueError as exc:
             raise ValueError("must be an IP address literal such as 127.0.0.1") from exc
         return value
-
-    @field_validator("mcp_log_level")
-    @classmethod
-    def _validate_level(cls, value: str) -> str:
-        level = value.strip().upper()
-        if level not in logging.getLevelNamesMapping():
-            raise ValueError("must be a logging level name such as INFO or DEBUG")
-        return level
 
     @property
     def mcp_host_is_loopback(self) -> bool:
@@ -248,33 +245,31 @@ def host_is_set(prefix: str, environ: Mapping[str, str] | None = None) -> bool:
     return bool(source.get(f"{prefix}HOST", "").strip())
 
 
-def _reject_unknown_keys(
-    prefix: str, source: Mapping[str, str], suffixes: Mapping[str, str]
-) -> None:
-    """Fail loudly on any ``<prefix>*`` variable that is not a recognised setting.
+def reject_unknown_env(prefix: str, suffixes: Mapping[str, str], source: Mapping[str, str]) -> None:
+    """Fail loudly if any ``<prefix>*`` variable is not a documented setting.
 
-    A silently dropped typo (``..._ALLOW_WRITE`` for ``..._ALLOW_WRITES``) is a
-    security hazard: the operator believes a safety switch is set when it is not.
-    Only names are listed, never values (they may be secrets).
-    """
-    known = set(suffixes)
-    unknown = sorted(
-        name for name in source if name.startswith(prefix) and name[len(prefix) :] not in known
-    )
+    Shared by both loaders: a silently-ignored typo in a ``<prefix>*`` name could
+    leave TLS verification, a write gate or the transport in an unintended state,
+    so the unknown names are reported, never dropped. ``suffixes`` is the loader's
+    ``<SUFFIX> -> field`` map."""
+    known = {prefix + suffix for suffix in suffixes}
+    unknown = sorted(k for k in source if k.startswith(prefix) and k not in known)
     if unknown:
         raise ConfigError(
-            "Unknown environment variable(s): "
-            + ", ".join(unknown)
-            + ". Check for typos; remove or correct them."
+            f"Unknown {prefix}* variable(s): {', '.join(unknown)}. "
+            "Only documented settings are accepted; check for typos."
         )
 
 
 def load_device_settings(prefix: str, environ: Mapping[str, str] | None = None) -> DeviceSettings:
-    """Build DeviceSettings from ``<prefix>*`` variables. Fails fast."""
-    if not _PREFIX.fullmatch(prefix):
-        raise ConfigError(f"invalid environment prefix {prefix!r}")
+    """Build DeviceSettings from ``<prefix>*`` variables. Fails fast.
+
+    Any variable that starts with ``prefix`` but is not a documented setting is an
+    error (a silently-ignored typo could leave TLS verification or a write gate in
+    an unintended state), so the unknown names are reported rather than dropped.
+    """
     source = os.environ if environ is None else environ
-    _reject_unknown_keys(prefix, source, DEVICE_ENV_SUFFIXES)
+    reject_unknown_env(prefix, DEVICE_ENV_SUFFIXES, source)
     raw: dict[str, object] = {
         field: source[prefix + suffix]
         for suffix, field in DEVICE_ENV_SUFFIXES.items()
@@ -288,11 +283,11 @@ def load_device_settings(prefix: str, environ: Mapping[str, str] | None = None) 
 
 
 def load_global_settings(prefix: str, environ: Mapping[str, str] | None = None) -> GlobalSettings:
-    """Build GlobalSettings from ``<prefix>TRANSPORT/HOST/PORT/LOG_LEVEL``. Fails fast."""
+    """Build GlobalSettings from ``<prefix>TRANSPORT/HOST/PORT``. Fails fast."""
     if not _PREFIX.fullmatch(prefix):
         raise ConfigError(f"invalid environment prefix {prefix!r}")
     source = os.environ if environ is None else environ
-    _reject_unknown_keys(prefix, source, GLOBAL_ENV_SUFFIXES)
+    reject_unknown_env(prefix, GLOBAL_ENV_SUFFIXES, source)
     raw = {
         field: source[prefix + suffix]
         for suffix, field in GLOBAL_ENV_SUFFIXES.items()

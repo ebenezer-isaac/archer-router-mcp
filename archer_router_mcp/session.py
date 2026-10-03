@@ -19,7 +19,7 @@ from .auth import RouterAuthenticator, Session, merge_levels, parse_json, resolv
 from .core.config import DeviceSettings
 from .core.errors import TokenExpired
 from .core.serial import SerialLock
-from .errors import ProtocolError, RouterError
+from .errors import ProtocolError, RouterError, WriteOutcomeUnknown
 from .transport import ArcherTransport
 
 log = logging.getLogger(__name__)
@@ -68,8 +68,17 @@ class RouterSession:
         form: str,
         operation: str,
         params: dict[str, Any] | None = None,
+        *,
+        idempotent: bool = True,
     ) -> dict[str, Any]:
-        """Serialised authenticated request. Lazily logs in; re-logs-in once on timeout."""
+        """Serialised authenticated request. Lazily logs in; re-logs-in once on timeout.
+
+        ``idempotent=True`` (reads): on a ``timeout`` the session re-authenticates and
+        replays the request a single time. ``idempotent=False`` (writes): a ``timeout``
+        means the reply was lost after the write may already have committed — the session
+        re-authenticates (so the caller can read back) but **never resends**, raising
+        :class:`WriteOutcomeUnknown` instead of double-applying a non-idempotent write.
+        """
 
         async def action() -> dict[str, Any]:
             if self._session is None:
@@ -77,11 +86,16 @@ class RouterSession:
             try:
                 return await self._do_request(path, form, operation, params)
             except TokenExpired:
-                # Session expired mid-use: re-login once (counts against the breaker)
-                # and replay a single time. A second timeout propagates — no third login.
-                log.info("router session expired; re-authenticating once and replaying")
+                # Session expired mid-use: re-login once (counts against the breaker).
+                # A second timeout propagates — no third login.
+                log.info("router session expired; re-authenticating once")
                 await self._authenticate(explicit=False)
-                return await self._do_request(path, form, operation, params)
+                if idempotent:
+                    return await self._do_request(path, form, operation, params)
+                raise WriteOutcomeUnknown(
+                    "The write's reply was lost to a session timeout; it was NOT resent. "
+                    "The session re-authenticated; the outcome must be read back."
+                ) from None
 
         return await self._lock.run(action)
 

@@ -11,6 +11,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ..core.errors import InvalidInput
 from ..core.tooling import run_tool
 from ..core.write_gate import check_write_gate
 from ..crypto import build_request_body
@@ -61,7 +62,7 @@ VERIFIED_WRITES: dict[str, str] = {
 def valid_mac(value: Any) -> str:
     mac = normalize_mac(value)
     if mac is None:
-        raise ValueError("mac is not a valid MAC address")
+        raise InvalidInput("mac is not a valid MAC address")
     return mac
 
 
@@ -69,40 +70,40 @@ def valid_ipv4(value: Any) -> str:
     import ipaddress
 
     if not isinstance(value, str):
-        raise ValueError("ip must be a string")
+        raise InvalidInput("ip must be a string")
     try:
         parsed = ipaddress.ip_address(value.strip())
     except ValueError:
-        raise ValueError("ip is not a valid IPv4 address") from None
+        raise InvalidInput("ip is not a valid IPv4 address") from None
     if parsed.version != 4:
-        raise ValueError("ip must be an IPv4 address")
+        raise InvalidInput("ip must be an IPv4 address")
     return str(parsed)
 
 
 def valid_name(value: Any) -> str:
     if not isinstance(value, str):
-        raise ValueError("name must be a string")
+        raise InvalidInput("name must be a string")
     name = value.strip()
     if not name:
-        raise ValueError("name must not be empty")
+        raise InvalidInput("name must not be empty")
     if _CONTROL.search(name):
-        raise ValueError("name must not contain control characters")
+        raise InvalidInput("name must not contain control characters")
     if len(name) > NAME_MAX:
-        raise ValueError(f"name must be at most {NAME_MAX} characters")
+        raise InvalidInput(f"name must be at most {NAME_MAX} characters")
     return name
 
 
 def valid_bool(value: Any, label: str) -> bool:
     if not isinstance(value, bool):
-        raise ValueError(f"{label} must be a boolean")
+        raise InvalidInput(f"{label} must be a boolean")
     return value
 
 
 def valid_kbps(value: Any, label: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"{label} must be a non-negative integer (0 = unlimited)")
+        raise InvalidInput(f"{label} must be a non-negative integer (0 = unlimited)")
     if value < 0:
-        raise ValueError(f"{label} must be >= 0")
+        raise InvalidInput(f"{label} must be >= 0")
     return value
 
 
@@ -110,12 +111,12 @@ def valid_rules(rules: Any) -> list[dict[str, Any]]:
     if rules is None:
         return []
     if not isinstance(rules, list):
-        raise ValueError("rules must be a list of rule objects")
+        raise InvalidInput("rules must be a list of rule objects")
     if len(rules) > MAX_SCHEDULE_RULES:
-        raise ValueError(f"rules may contain at most {MAX_SCHEDULE_RULES} entries")
+        raise InvalidInput(f"rules may contain at most {MAX_SCHEDULE_RULES} entries")
     for rule in rules:
         if not isinstance(rule, dict):
-            raise ValueError("each rule must be an object")
+            raise InvalidInput("each rule must be an object")
     return list(rules)
 
 

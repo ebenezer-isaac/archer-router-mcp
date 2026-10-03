@@ -14,8 +14,8 @@ import sys
 from collections.abc import Sequence
 
 from . import server
-from .core.cli import configure_logging, emit_envelope, emit_lines
-from .core.envelope import fail, ok
+from .core.cli import configure_logging, emit_envelope, emit_lines, run_breaker
+from .core.envelope import fail
 from .core.errors import ConfigError
 
 TOOLS: tuple[str, ...] = server.TOOL_NAMES
@@ -86,25 +86,23 @@ def _run_check_auth(
     return emit_envelope(result)
 
 
-def _run_breaker(show: bool, clear: bool, components: server.Components | None) -> int:
+def _run_breaker(action: str, components: server.Components | None) -> int:
+    """``breaker --show|--clear`` via the shared ``core.cli.run_breaker`` helper.
+
+    ``--show`` prints the breaker ``status()`` as sorted JSON and exits 0 even on a
+    corrupt/unreadable store (``status()`` never raises); ``--clear`` resets it and
+    exits 0. A configuration error is surfaced as a CONFIG_ERROR envelope (exit 2).
+    """
     configure_logging(server.LOG_LEVEL_VAR)
-
-    async def _go() -> dict:
-        comps = components or server.Components.from_env()
-        try:
-            if clear:
-                comps.breaker.clear()
-                return ok({"cleared": True, "path": str(comps.breaker.path)})
-            return ok(comps.breaker.show())
-        finally:
-            if components is None:
-                await comps.aclose()
-
     try:
-        result = asyncio.run(_go())
+        comps = components or server.Components.from_env()
     except ConfigError as exc:
-        result = fail("CONFIG_ERROR", str(exc))
-    return emit_envelope(result)
+        return emit_envelope(fail("CONFIG_ERROR", str(exc)))
+    try:
+        return run_breaker(comps.breaker, action)
+    finally:
+        if components is None:
+            asyncio.run(comps.aclose())
 
 
 def main(argv: Sequence[str] | None = None, *, components: server.Components | None = None) -> int:
@@ -115,7 +113,7 @@ def main(argv: Sequence[str] | None = None, *, components: server.Components | N
     if args.check_auth:
         return _run_check_auth(args.login, components, force_takeover=args.force_takeover)
     if args.command == "breaker":
-        return _run_breaker(args.show, args.clear, components)
+        return _run_breaker("clear" if args.clear else "show", components)
     if args.command == "serve":
         server.serve()
         return 0

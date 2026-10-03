@@ -1,32 +1,21 @@
-"""BREAKER r3 / writes — F2: the reboot rate limit is decide-then-record and fails open.
+"""BREAKER r3 / writes — F2 (RW-F2) RESOLVED by X1b's ``ReservationStore``.
 
-Claim under attack: "``router_reboot`` is rate-limited via a persisted timestamp
-that survives process restart and cannot be bypassed by a backward clock".
+RW-F2 was: the reboot rate limit was a *decide-then-record* pair on an unlocked,
+writability-unproven file — two callers could both read "allowed" before either
+recorded, and an unwritable ``STATE_DIR`` was discovered only *after* the reboot had
+been sent, so the limiter failed open to unbounded reboots. It was deferred to X1b's
+``ReservationStore`` (reserve-before-act, writability-proven, fail-closed).
 
-The root-cause triage (ROOT-CAUSE-breaker.md §4) predicts the reboot limiter grows
-the same ``RA-F1`` shape: *decide* (``limiter.status(now)``) and *record*
-(``limiter.record(now)``) are two unserialised steps on a shared file, with the
-destructive ``session.request`` **between** them, and record is only attempted
-*after* the reboot has already been sent. Two ways to bypass:
+That refactor has landed (``archer_router_mcp.ratelimit.RebootLimiter`` over
+``core.state.ReservationStore``), so these tests now assert the invariant HOLDS and
+pass (the ``xfail(strict=True)`` markers are removed). Each is the positive form of
+the finding it closes:
 
-* **Concurrency** — two ``router_reboot`` calls both read ``status`` (both see
-  "allowed", no file yet), both pass the check, then serialise only through the
-  session lock and both send the reboot. Nothing serialises decide+record.
-
-* **Unwritable STATE_DIR** — the reboot is sent, then ``record`` raises (the dir is
-  read-only / the save fails). The reboot already left the process, nothing is
-  persisted, so the *next* call is allowed again → unbounded reboots. The limiter's
-  own docstring assumes "worst case ... one extra reboot"; the real worst case is
-  every call.
-
-Both tests assert the claimed invariant (one reboot reaches the device inside the
-window) and FAIL against the code.
-
-Backward-clock bypass was also attacked and produced nothing: a ``last`` in the
-past only makes ``next_allowed`` earlier, never admits an extra reboot inside the
-window — that half of the claim holds (see ``test_backward_clock_does_not_bypass``,
-which passes and is therefore not itself a finding, included only to delimit the
-attack surface).
+* reserve-before-act is atomic — a second reserve inside the window (or while one is
+  in flight) is refused, so decide-then-record can no longer admit two reboots;
+* an unwritable store is discovered at *reserve* time and refuses before any reboot
+  leaves the process (fail closed), not fail-open after the fact;
+* the backward-clock delimiter still holds (it never did bypass).
 """
 
 from __future__ import annotations
@@ -36,28 +25,13 @@ from pathlib import Path
 import pytest
 
 from archer_router_mcp import server
-from archer_router_mcp.core.ratelimit import RateLimiter
+from archer_router_mcp.core.breaker import canonical_device_key
+from archer_router_mcp.core.state import Outcome
+from archer_router_mcp.errors import RateLimited
+from archer_router_mcp.ratelimit import RebootLimiter
 from tests.fakes import FakeRouter, build_components
 
-# RW-F2 — orchestrator decision: the reboot limiter's decide-then-record / fail-open
-# shape is the same structural cause as the login breaker (RA-F1) and is DEFERRED to
-# X1b's `ReservationStore` (reserve-before-act, writability-proven, fail-closed). These
-# two tests are therefore expected to fail here until that refactor lands; they are
-# marked strict xfail so the day X1b fixes the cause they flip to a visible failure and
-# this marker is removed. See tests/breaker/r3/writes/FINDINGS.md (F2).
-_DEFERRED_RW_F2 = pytest.mark.xfail(
-    strict=True, reason="deferred to X1b ReservationStore; FINDINGS RW-F2"
-)
-
 PROTECTED = "00:00:5E:00:53:AA"
-
-# The "two processes" axis reduces to the same unlocked file store: there is no
-# cross-process lock anywhere in RateLimiter, so N processes behave exactly like the
-# N in-process callers modelled deterministically in
-# ``test_decide_and_record_are_not_atomic`` below. A live multiprocessing reproduction
-# was prototyped but omitted: under this sandbox spawn/Manager startup is
-# nondeterministic (skip-vs-run), which would make the test flaky, violating the
-# "deterministic, isolated" rule. The deterministic model is the faithful witness.
 
 
 class FakeClock:
@@ -66,14 +40,6 @@ class FakeClock:
 
     def __call__(self) -> float:
         return self.t
-
-
-class UnwritableLimiter(RateLimiter):
-    """Models an unwritable STATE_DIR: the save is only discovered to fail at
-    record time (``save_ledger``/``mkstemp`` raising OSError), exactly RA-F1's shape."""
-
-    def record(self, now: float) -> None:
-        raise OSError("state directory is read-only")
 
 
 def _components(tmp_path: Path, clock: FakeClock):
@@ -88,54 +54,53 @@ def _components(tmp_path: Path, clock: FakeClock):
     return fake, comps
 
 
-@_DEFERRED_RW_F2
-def test_decide_and_record_are_not_atomic(tmp_path) -> None:
-    """Deterministic model of the async gap: two callers each decide before either
-    records (caller A is awaiting its reboot POST when caller B reads status). The
-    limiter offers no reserve, so both are admitted.
+def test_reserve_before_act_is_atomic(tmp_path) -> None:
+    """The reserve IS the admission (one locked write), so a second caller inside the
+    window is refused — decide-then-record can no longer admit two reboots per window.
     """
-    limiter = RateLimiter(tmp_path, "rl.json", 900.0)
-    now = 1000.0
-    a_allowed = limiter.status(now)["allowed"]  # caller A decides
-    b_allowed = limiter.status(now)["allowed"]  # caller B decides (A has not recorded yet)
-    limiter.record(now)  # A records after its reboot POST returns
-    limiter.record(now)  # B records after its reboot POST returns
-    # Claim: the window admits at most one reboot.
-    assert [a_allowed, b_allowed].count(True) == 1, (
-        "both concurrent callers were admitted: status() is a pure read with no "
-        "check-and-reserve, so decide-then-record cannot bound reboots to one per window"
-    )
+    clock = FakeClock(1000.0)
+    limiter = RebootLimiter(tmp_path, "dev", min_interval_s=900.0, clock=clock)
+    first = limiter.reserve()  # caller A reserves (the admission commits under the lock)
+    # Caller B, same device/window, is refused before it can act — no lost-update gap.
+    with pytest.raises(RateLimited):
+        RebootLimiter(tmp_path, "dev", min_interval_s=900.0, clock=clock).reserve()
+    first.release(Outcome.SUCCESS)
+    # Still inside the window after A released: one reboot per window holds.
+    clock.t = 1060.0
+    with pytest.raises(RateLimited):
+        limiter.reserve()
 
 
-@_DEFERRED_RW_F2
-async def test_unwritable_state_dir_fails_open_to_unbounded_reboots(tmp_path) -> None:
+async def test_unwritable_state_dir_refuses_before_any_reboot(tmp_path) -> None:
+    # A regular file where the state directory must be: the store can never be created,
+    # so the reservation (and thus the reboot) is refused before anything is sent.
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a directory", encoding="utf-8")
     clock = FakeClock(1000.0)
     fake, c = _components(tmp_path, clock)
-    # Swap in a limiter whose record() fails, as an unwritable STATE_DIR would.
-    c.reboot_rate_limiter = UnwritableLimiter(tmp_path, "reboot-ratelimit.json", 900.0)
+    c.reboot_rate_limiter = RebootLimiter(
+        blocker / "state", canonical_device_key("192.0.2.1"), min_interval_s=900.0, clock=clock
+    )
     try:
-        await server.router_reboot(c, confirm_write=True)
-        # The first reboot was sent even though persistence failed.
-        assert fake.reboots == 1
-        # A second call one minute later — well inside the 900s window.
+        first = await server.router_reboot(c, confirm_write=True)
+        # Fail closed: nothing was sent, mapped to RATE_LIMITED, never INTERNAL_ERROR.
+        assert first["success"] is False
+        assert first["error"]["code"] == "RATE_LIMITED"
+        assert fake.reboots == 0
+        # A second call one minute later is likewise refused (still unwritable).
         clock.t = 1060.0
         second = await server.router_reboot(c, confirm_write=True)
-        # Claim: a call inside the window sends nothing.
-        assert fake.reboots == 1, (
-            f"rate limit failed open: {fake.reboots} reboots in the window because the "
-            "limiter never persisted (unwritable store), and the reboot is sent before record"
-        )
         assert second["success"] is False
         assert second["error"]["code"] == "RATE_LIMITED"
+        assert fake.reboots == 0
     finally:
         await c.aclose()
 
 
 def test_backward_clock_does_not_bypass(tmp_path) -> None:
-    """Delimiter (passes): the backward-clock half of the claim holds."""
-    limiter = RateLimiter(tmp_path, "rl.json", 900.0)
-    limiter.record(10_000.0)
-    # Clock jumps far backward; still refused, retry window only grows.
-    status = limiter.status(5_000.0)
+    """Delimiter (still passes): a clock that jumps backward only grows the window."""
+    limiter = RebootLimiter(tmp_path, "dev", min_interval_s=900.0, clock=FakeClock(10_000.0))
+    limiter.reserve().release(Outcome.SUCCESS)  # acceptance recorded at t=10000
+    status = limiter.status(5_000.0)  # clock jumps far backward
     assert status["allowed"] is False
     assert status["retry_after_s"] >= 900.0

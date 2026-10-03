@@ -9,7 +9,8 @@ from pathlib import Path
 import pytest
 
 from archer_router_mcp import cli, server
-from tests.fakes import FAKE_STOK, FAKE_SYSAUTH, FakeRouter, build_components
+from archer_router_mcp.core.state import Outcome
+from tests.fakes import FAKE_STOK, FAKE_SYSAUTH, FINGERPRINT_A, FakeRouter, build_components
 
 
 def _close(components: server.Components) -> None:
@@ -28,7 +29,7 @@ async def test_router_status_reports_without_login(tmp_path: Path) -> None:
         data = env["data"]
         assert data["feature_flags"]["5_gdpr"] is True
         assert data["model"] == "Archer AX53"
-        assert data["tls_fingerprint_sha256"] == "aa" * 32
+        assert data["tls_fingerprint_observed"] == FINGERPRINT_A
         assert data["breaker"]["state"] == "closed"
         assert fake.login_posts == 0
     finally:
@@ -152,19 +153,19 @@ def test_cli_breaker_show_and_clear(tmp_path: Path, capsys) -> None:
     fake = FakeRouter()
     c = build_components(fake, state_dir=tmp_path)
     try:
-        c.breaker.record_failure({"error": "login failed", "failure_count": 1})
+        # Spend the budget of 1 via the reserve/release API, then inspect via the CLI.
+        c.breaker.reserve_attempt().release(Outcome.FAILURE, failure={"error": "login failed"})
         rc = cli.main(["breaker", "--show"], components=c)
         payload = json.loads(capsys.readouterr().out)
-        assert rc == 0  # show always emits an ok envelope
-        assert payload["success"] is True
-        assert payload["data"]["failed"] == 1
-        assert payload["data"]["state"] == "open"
+        assert rc == 0  # show prints status() as JSON and always exits 0
+        assert payload["failures"] == 1
+        assert payload["state"] == "open"
 
         rc2 = cli.main(["breaker", "--clear"], components=c)
-        cleared = json.loads(capsys.readouterr().out)
+        cleared = capsys.readouterr().out
         assert rc2 == 0
-        assert cleared["data"]["cleared"] is True
-        assert c.breaker.snapshot().failed == 0
+        assert "cleared" in cleared.lower()
+        assert c.breaker.status()["failures"] == 0
     finally:
         _close(c)
 
@@ -176,7 +177,7 @@ def test_cli_check_auth_config_error_is_envelope(monkeypatch, capsys) -> None:
             monkeypatch.delenv(key, raising=False)
     rc = cli.main(["--check-auth"])
     payload = json.loads(capsys.readouterr().out)
-    assert rc == 1
+    assert rc == 2  # shared exit map: config error -> 2
     assert payload["success"] is False
     assert payload["error"]["code"] == "CONFIG_ERROR"
 

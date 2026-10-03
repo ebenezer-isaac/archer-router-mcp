@@ -7,10 +7,24 @@ from pathlib import Path
 import httpx
 import pytest
 
-from archer_router_mcp.core.errors import LockoutGuard, TransportError
+from archer_router_mcp.core.errors import (
+    BreakerOpen,
+    LoginDisabled,
+    TlsPinMismatch,
+    TransportError,
+)
+from archer_router_mcp.core.state import Outcome
 from archer_router_mcp.errors import AuthFailed, LockedOut, ProtocolError, SessionConflict
 from archer_router_mcp.transport import ArcherTransport, build_url
-from tests.fakes import FAKE_SYSAUTH, FakeRouter, build_components
+from tests.fakes import (
+    CERT_A_DER,
+    CERT_B_DER,
+    FAKE_SYSAUTH,
+    FINGERPRINT_A,
+    FakeNetworkStream,
+    FakeRouter,
+    build_components,
+)
 
 # ------------------------------------------------------------------- transport
 
@@ -74,50 +88,51 @@ async def test_oversize_response_rejected(monkeypatch) -> None:
 
 
 async def test_fingerprint_pin_match_allows_request() -> None:
-    called = {"n": 0}
-
+    # The certificate the serving connection presents matches the pin: allowed, and the
+    # observed fingerprint is read from THAT connection (no side-channel probe).
     def handler(request: httpx.Request) -> httpx.Response:
-        called["n"] += 1
-        return httpx.Response(200, content="{}")
+        return httpx.Response(
+            200, content="{}", extensions={"network_stream": FakeNetworkStream(CERT_A_DER)}
+        )
 
-    t = await _transport(
-        handler,
-        tls_fingerprint_sha256="ab" * 32,
-        fingerprint_probe=_probe_returning("AB" * 32),
-    )
+    t = await _transport(handler, tls_fingerprint_sha256=FINGERPRINT_A)
     try:
         await t.post(token="", path="/p", body="operation=read")
-        assert called["n"] == 1
-        assert await t.observed_fingerprint() == "ab" * 32
+        assert t.observed_fingerprint == FINGERPRINT_A
     finally:
         await t.aclose()
 
 
-async def test_fingerprint_mismatch_sends_no_request() -> None:
-    called = {"n": 0}
-
+async def test_fingerprint_mismatch_is_refused() -> None:
+    # The serving connection presents a DIFFERENT certificate than the pin: refused
+    # (fail closed) against the request-serving connection, not a separate probe.
     def handler(request: httpx.Request) -> httpx.Response:
-        called["n"] += 1
-        return httpx.Response(200, content="{}")
+        return httpx.Response(
+            200, content="{}", extensions={"network_stream": FakeNetworkStream(CERT_B_DER)}
+        )
 
-    t = await _transport(
-        handler,
-        tls_fingerprint_sha256="aa" * 32,
-        fingerprint_probe=_probe_returning("bb" * 32),
-    )
+    t = await _transport(handler, tls_fingerprint_sha256=FINGERPRINT_A)
     try:
-        with pytest.raises(TransportError, match="does not match"):
+        with pytest.raises(TlsPinMismatch, match="does not match"):
             await t.post(token="", path="/p", body="operation=read")
-        assert called["n"] == 0  # fail closed: the request body never left
     finally:
         await t.aclose()
 
 
-def _probe_returning(value: str):
-    async def _probe() -> str:
-        return value
+async def test_fingerprint_observed_without_a_pin() -> None:
+    # With no pin configured the transport still reports the observed fingerprint so an
+    # operator can discover and pin it.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, content="{}", extensions={"network_stream": FakeNetworkStream(CERT_A_DER)}
+        )
 
-    return _probe
+    t = await _transport(handler)
+    try:
+        await t.post(token="", path="/p", body="operation=read")
+        assert t.observed_fingerprint == FINGERPRINT_A
+    finally:
+        await t.aclose()
 
 
 # ----------------------------------------------------------- device_config / reads
@@ -171,7 +186,7 @@ async def test_login_succeeds_both_envelopes(tmp_path: Path, envelope: str) -> N
         assert c.transport.sysauth == FAKE_SYSAUTH
         assert fake.login_posts == 1
         assert fake.confirm_values == [False]  # confirm defaults to False
-        assert c.breaker.snapshot().successful == 1
+        assert c.breaker.status()["successes"] == 1
     finally:
         await c.aclose()
 
@@ -187,7 +202,7 @@ async def test_login_failed_raises_without_retry_and_writes_breaker(tmp_path: Pa
         assert info.value.attempts_left == 3
         assert info.value.max_attempts == 5
         assert fake.login_posts == 1  # never retried
-        assert c.breaker.snapshot().failed == 1
+        assert c.breaker.status()["failures"] == 1
     finally:
         await c.aclose()
 
@@ -199,7 +214,7 @@ async def test_exceeded_max_attempts_is_locked_out(tmp_path: Path) -> None:
         with pytest.raises(LockedOut) as info:
             await c.authenticator.login(explicit=True)
         assert info.value.seconds_left == 7200
-        assert c.breaker.snapshot().failed == 1
+        assert c.breaker.status()["failures"] == 1
     finally:
         await c.aclose()
 
@@ -271,7 +286,7 @@ async def test_login_disabled_makes_no_network_call(tmp_path: Path) -> None:
         # The credential-free probe still works.
         await c.authenticator.read_device_config()
         probe_paths = len(fake.paths)
-        with pytest.raises(LockoutGuard, match="frozen"):
+        with pytest.raises(LoginDisabled, match="frozen"):
             await c.authenticator.login(explicit=True)
         assert fake.login_posts == 0
         assert len(fake.paths) == probe_paths  # not even keys/auth were fetched
@@ -283,8 +298,9 @@ async def test_breaker_open_blocks_login_with_no_network(tmp_path: Path) -> None
     fake = FakeRouter()
     c = build_components(fake, state_dir=tmp_path)
     try:
-        c.breaker.record_failure({"error": "login failed"})  # budget of 1 now spent
-        with pytest.raises(LockoutGuard):
+        # Spend the budget of 1 via the new reserve/release API.
+        c.breaker.reserve_attempt().release(Outcome.FAILURE, failure={"error": "login failed"})
+        with pytest.raises(BreakerOpen):
             await c.authenticator.login(explicit=True)
         assert fake.login_posts == 0
     finally:

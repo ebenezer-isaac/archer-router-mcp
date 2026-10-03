@@ -15,11 +15,12 @@ from pathlib import Path
 import pytest
 
 from archer_router_mcp import server
-from archer_router_mcp.core.config import load_device_settings
+from archer_router_mcp.config import load_device_settings
 from archer_router_mcp.core.errors import ConfigError
-from archer_router_mcp.core.ratelimit import RateLimiter
+from archer_router_mcp.core.state import Outcome
 from archer_router_mcp.crypto import build_request_body
-from archer_router_mcp.errors import R0Unconfirmed
+from archer_router_mcp.errors import R0Unconfirmed, RateLimited
+from archer_router_mcp.ratelimit import RebootLimiter
 from archer_router_mcp.tools._write_common import require_r0_confirmed, wifi_write_confirmed
 from tests.fakes import FakeRouter, build_components
 
@@ -798,19 +799,21 @@ async def test_breaker_open_blocks_writes(tmp_path) -> None:
     try:
         env = await server.router_block_device(c, DEV2, confirm_write=True)
         assert env["success"] is False
-        assert env["error"]["code"] == "LOGIN_REFUSED"
+        # The breaker now owns login_disabled and raises LoginDisabled (fail closed).
+        assert env["error"]["code"] == "LOGIN_DISABLED"
         assert fake.login_posts == 0 and fake.write_posts == 0
     finally:
         await c.aclose()
 
 
-# ========================================================= RateLimiter (core unit)
+# ============================================= RebootLimiter (reserve-before-act unit)
 
 
-def test_ratelimiter_allows_first_then_blocks(tmp_path) -> None:
-    limiter = RateLimiter(tmp_path, "rl.json", 900.0)
+def test_reboot_limiter_allows_first_then_blocks(tmp_path) -> None:
+    clock = FakeClock(1000.0)
+    limiter = RebootLimiter(tmp_path, "dev", min_interval_s=900.0, clock=clock)
     assert limiter.status(1000.0)["allowed"] is True
-    limiter.record(1000.0)
+    limiter.reserve().release(Outcome.SUCCESS)  # acceptance recorded at t=1000
     status = limiter.status(1100.0)
     assert status["allowed"] is False
     assert status["next_allowed"] == 1900.0
@@ -818,17 +821,38 @@ def test_ratelimiter_allows_first_then_blocks(tmp_path) -> None:
     assert limiter.status(1900.0)["allowed"] is True
 
 
-def test_ratelimiter_persists_across_instances(tmp_path) -> None:
-    RateLimiter(tmp_path, "rl.json", 900.0).record(5000.0)
-    assert RateLimiter(tmp_path, "rl.json", 900.0).status(5100.0)["allowed"] is False
+def test_reboot_limiter_persists_across_instances(tmp_path) -> None:
+    RebootLimiter(tmp_path, "dev", min_interval_s=900.0, clock=FakeClock(5000.0)).reserve().release(
+        Outcome.SUCCESS
+    )
+    later = RebootLimiter(tmp_path, "dev", min_interval_s=900.0, clock=FakeClock(5100.0))
+    assert later.status(5100.0)["allowed"] is False
 
 
-def test_ratelimiter_corrupt_file_is_treated_as_empty(tmp_path) -> None:
-    path = tmp_path / "rl.json"
-    path.write_text("not json", encoding="utf-8")
-    limiter = RateLimiter(tmp_path, "rl.json", 900.0)
-    assert limiter.last_time() is None
-    assert limiter.status(0.0)["allowed"] is True
+def test_reboot_limiter_second_reserve_in_window_is_refused(tmp_path) -> None:
+    clock = FakeClock(1000.0)
+    limiter = RebootLimiter(tmp_path, "dev", min_interval_s=900.0, clock=clock)
+    limiter.reserve().release(Outcome.SUCCESS)
+    clock.t = 1060.0
+    with pytest.raises(RateLimited):
+        limiter.reserve()
+
+
+def test_reboot_limiter_abort_does_not_consume_the_window(tmp_path) -> None:
+    # A reboot refused before it is sent (ABORT) must leave the window open.
+    clock = FakeClock(1000.0)
+    limiter = RebootLimiter(tmp_path, "dev", min_interval_s=900.0, clock=clock)
+    limiter.reserve().release(Outcome.ABORT)
+    assert limiter.status(1000.0)["allowed"] is True
+
+
+def test_reboot_limiter_corrupt_store_fails_closed(tmp_path) -> None:
+    # A corrupt ledger must refuse (fail closed), never be treated as "no previous event".
+    limiter = RebootLimiter(tmp_path, "dev", min_interval_s=900.0, clock=FakeClock(0.0))
+    limiter.path.write_text("not json", encoding="utf-8")
+    with pytest.raises(RateLimited):
+        limiter.reserve()
+    assert limiter.status(0.0)["allowed"] is False
 
 
 # ============================================================ config: protected macs

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from ..core.errors import InvalidInput
 from ..errors import PreconditionFailed, WriteOutcomeUnknown
 from ..normalize import as_bool, as_int, first_present, mac_dashed, normalize_mac
 from ._write_common import (
@@ -205,7 +206,7 @@ async def router_set_access_mode(
     def prep() -> str:
         m = str(mode).strip().lower()
         if m not in ACCESS_MODES:
-            raise ValueError("mode must be one of: off, blacklist, whitelist")
+            raise InvalidInput("mode must be one of: off, blacklist, whitelist")
         return m
 
     def plans(m: str) -> list[dict[str, Any]]:

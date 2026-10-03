@@ -17,8 +17,10 @@ from typing import Any
 from urllib.parse import quote
 
 from . import crypto, errors
+from .config import DeviceSettings
 from .core.breaker import LoginBreaker
-from .core.config import DeviceSettings
+from .core.errors import LoginDisabled
+from .core.state import Outcome, Reservation
 from .crypto import AesKey
 from .errors import (
     AuthFailed,
@@ -186,35 +188,54 @@ class RouterAuthenticator:
     async def login(self, *, force_takeover: bool = False, explicit: bool = True) -> Session:
         """Perform exactly ONE login request (plus an optional, authorised takeover).
 
-        The breaker (and ``LOGIN_DISABLED``) are checked before any network I/O, so
-        a frozen or tripped breaker spends no attempt and sends nothing. A failed
+        ``LOGIN_DISABLED`` is checked before any network I/O (owned by the breaker),
+        so a frozen breaker fetches nothing and sends nothing. The persistent breaker
+        then reserves one attempt immediately before the login POST — the admit
+        decision and the budget increment are one locked write — so a tripped or
+        spent breaker refuses here with no login POST. The credential-free
+        ``fetch_keys``/``fetch_auth`` reads stay outside the reservation. A failed
         login is never retried. ``user conflict`` becomes :class:`SessionConflict`
         unless ``ARCHER_ROUTER_FORCE_SESSION_TAKEOVER`` is set **and**
         ``force_takeover`` is passed, in which case the login is resent once with
-        ``confirm=true`` (logged at WARNING).
-        """
-        self._breaker.check(explicit=explicit)
+        ``confirm=true`` (logged at WARNING) under the **same** reservation.
 
+        ``explicit`` is accepted for call-site compatibility; the breaker now holds a
+        single login budget rather than a separate implicit/explicit policy.
+        """
+        _ = explicit
+        if self._breaker.login_disabled:
+            raise LoginDisabled(
+                f"Login refused: {self._settings.env_name('LOGIN_DISABLED')}=true. "
+                "Authentication is frozen; no login request is sent."
+            )
         n_pw, e_pw, mode = await self.fetch_keys()
         n_sig, e_sig, seq = await self.fetch_auth()
         aes = crypto.gen_aes_key(self._rng)
         pw_hash = crypto.password_hash(self._password)
         pw_rsa = crypto.rsa_pkcs1v15_hex(n_pw, e_pw, self._password)
 
-        outcome = await self._post_login(aes, pw_hash, pw_rsa, seq, n_sig, e_sig, confirm=False)
-        if outcome.errorcode is None and outcome.token:
-            self._breaker.record_success()
-            return Session(outcome.token, aes, seq, mode)
-
-        if outcome.errorcode == errors.USER_CONFLICT:
-            return await self._handle_conflict(
-                aes, pw_hash, pw_rsa, seq, n_sig, e_sig, mode, force_takeover=force_takeover
-            )
-
-        self._raise_login_error(outcome)
+        with self._breaker.reserve_attempt() as res:
+            outcome = await self._post_login(aes, pw_hash, pw_rsa, seq, n_sig, e_sig, confirm=False)
+            if outcome.errorcode is None and outcome.token:
+                res.release(Outcome.SUCCESS)
+                return Session(outcome.token, aes, seq, mode)
+            if outcome.errorcode == errors.USER_CONFLICT:
+                return await self._handle_conflict(
+                    res,
+                    aes,
+                    pw_hash,
+                    pw_rsa,
+                    seq,
+                    n_sig,
+                    e_sig,
+                    mode,
+                    force_takeover=force_takeover,
+                )
+            self._raise_login_error(res, outcome)
 
     async def _handle_conflict(
         self,
+        res: Reservation,
         aes: AesKey,
         pw_hash: str,
         pw_rsa: str,
@@ -226,6 +247,10 @@ class RouterAuthenticator:
         force_takeover: bool,
     ) -> Session:
         if not (self._settings.force_session_takeover and force_takeover):
+            # Another administrator holds the session; the router answered "user
+            # conflict" without evaluating the password, so this is not a credential
+            # failure and must not spend the login budget (ABORT, not FAILURE).
+            res.release(Outcome.ABORT)
             raise SessionConflict(
                 "Another administrator is logged in. Set "
                 f"{self._settings.env_name('FORCE_SESSION_TAKEOVER')}=true and request takeover "
@@ -238,11 +263,12 @@ class RouterAuthenticator:
         )
         outcome = await self._post_login(aes, pw_hash, pw_rsa, seq, n_sig, e_sig, confirm=True)
         if outcome.errorcode is None and outcome.token:
-            self._breaker.record_success()
+            res.release(Outcome.SUCCESS)
             return Session(outcome.token, aes, seq, mode)
         if outcome.errorcode == errors.USER_CONFLICT:
+            res.release(Outcome.ABORT)
             raise SessionConflict("Session takeover was refused by the router.")
-        self._raise_login_error(outcome)
+        self._raise_login_error(res, outcome)
 
     async def _post_login(
         self,
@@ -277,18 +303,20 @@ class RouterAuthenticator:
         data = merged.get("data") if isinstance(merged.get("data"), dict) else merged
         return _LoginOutcome(errorcode=code, token=extract_stok(effective), data=data)
 
-    def _raise_login_error(self, outcome: _LoginOutcome) -> None:
+    def _raise_login_error(self, res: Reservation, outcome: _LoginOutcome) -> None:
         code = outcome.errorcode
         data = outcome.data
         if code == errors.LOGIN_FAILED:
             failure_count = _as_int(data.get("failureCount"))
             attempts_allowed = _as_int(data.get("attemptsAllowed"))
-            self._breaker.record_failure(
-                {
+            # The password was evaluated and rejected: spend one failure on the budget.
+            res.release(
+                Outcome.FAILURE,
+                failure={
                     "error": code,
                     "failure_count": failure_count,
                     "attempts_allowed": attempts_allowed,
-                }
+                },
             )
             raise AuthFailed(
                 f"Login failed: {failure_count} failed attempt(s); "
@@ -298,18 +326,31 @@ class RouterAuthenticator:
             )
         if code == errors.EXCEEDED_MAX_ATTEMPTS:
             seconds = _as_int(data.get("seconds_left")) or errors.MAX_ATTEMPT_LOCK_SECONDS
-            self._breaker.record_failure({"error": code, "seconds_left": seconds})
+            # The device has locked the account: a failure plus a cooldown of the
+            # reported lock window, so the breaker also refuses until it elapses.
+            res.release(
+                Outcome.FAILURE,
+                cooldown_s=seconds,
+                failure={"error": code, "seconds_left": seconds},
+            )
             raise LockedOut(
                 "The router has locked the admin account after too many attempts "
                 "(about two hours).",
                 seconds_left=seconds,
             )
         if code == errors.MULTIPLE_LOGIN:
+            # Policy refusal (another session); the credential was not evaluated, so
+            # no budget is spent (ABORT).
+            res.release(Outcome.ABORT)
             raise LockedOut(
                 "The router refused the login under its multiple-login policy.", seconds_left=None
             )
         if code == errors.TIMEOUT:
+            # A transport/session timeout, not a credential verdict: no budget spent.
+            res.release(Outcome.ABORT)
             raise ProtocolError("The router reported 'timeout' during login.")
+        # Any other code is a protocol-level refusal, not a credential verdict: ABORT.
+        res.release(Outcome.ABORT)
         meaning = errors.error_meaning(code)
         raise ProtocolError(
             f"The router refused the login ({code or 'unknown error'})"

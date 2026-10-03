@@ -1,0 +1,21 @@
+{
+  "manifest": {
+    "core/README.md": "e772c0e6d3fd07dd982349297199b9d08f3fd75cd07bd915e0a361b6b721cbe2",
+    "core/__init__.py": "aca25e55d2e001b8c06dc9a603ffd345b524419d606263fbfb7f95362e40c98c",
+    "core/breaker.py": "d4e2df7043779942138ba41b86dd8c80bcfbd12535ef37578586cffe0bf25b45",
+    "core/cli.py": "7573f27ba15512d3d83d58dc3901b77e26d7a39f2457c1231f88e42b5aa610c8",
+    "core/config.py": "294ffaacce49f66070a5bb05e065a78e90bfa9513919f49b2283fe3922815fd4",
+    "core/envelope.py": "5059d060507205f548364b16ea62db6f2016142253f90492a9e8303c11be77ca",
+    "core/errors.py": "96be6999e16f8abe47ef8bf257360d7286ea9906e9dc680b40171bf6152413c5",
+    "core/redact.py": "533e2c4ac309ce5829cd5190cdc1853fdb969e995440a3fb592be7eaccaa91f0",
+    "core/serial.py": "5583629283e914c8d13f474aa2a67884ff5fa9025c9e27a5129cb85d39d8d501",
+    "core/state.py": "5b31d134d47019b50bcdb0dd6f3ee474f602f7694797ddb3351524945e449ecb",
+    "core/tooling.py": "100965692c9ac6e890b7ce7cd3459fb56f800c57bd04b620783e3b8f20b4f057",
+    "core/transport.py": "9e01076a3f854c36efce9242298a792e612070657a6b080127142ec5614b9822",
+    "core/types.py": "72c4d2e53e145dd96cf1d6125b83a7c983f404a5e3be1573c40caa4bc5b8e333",
+    "core/write_gate.py": "4f66bff09e1921ac95e327145155e3d05eb16e7b02240f2cd5378505c518e1c7",
+    "tests/conformance/test_breaker_contract.py": "3a0976945209df35546c2f1ffbfe55c7eb4ddd87e7de91fd907ec8202ea7d73f"
+  },
+  "note": "sha256 of every core/ file and the canonical conformance test; the package-name line in core/README.md is normalised to <PACKAGE>. Regenerate with scripts/core_manifest.py.",
+  "version": "1.1.0"
+}

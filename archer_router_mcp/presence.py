@@ -23,6 +23,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .core.errors import InvalidInput
 from .core.tooling import run_tool
 from .normalize import normalize_mac
 
@@ -326,12 +327,12 @@ async def router_client_history(
 
     async def _run() -> dict[str, Any]:
         if not isinstance(since, (int, float)) or isinstance(since, bool):
-            raise ValueError("since must be a Unix timestamp (number)")
+            raise InvalidInput("since must be a Unix timestamp (number)")
         if not isinstance(limit, int) or isinstance(limit, bool) or limit < 0:
-            raise ValueError("limit must be a non-negative integer")
+            raise InvalidInput("limit must be a non-negative integer")
         want = normalize_mac(mac) if mac else None
         if mac and want is None:
-            raise ValueError("mac is not a valid MAC address")
+            raise InvalidInput("mac is not a valid MAC address")
         capped = min(limit, HISTORY_MAX_LIMIT)
         events, skipped = components.presence_store.read_events(
             since=float(since), mac=want, limit=capped

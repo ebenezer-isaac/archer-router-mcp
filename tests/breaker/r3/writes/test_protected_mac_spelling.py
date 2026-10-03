@@ -41,14 +41,20 @@ def _components(tmp_path: Path):
     return fake, comps
 
 
-async def test_trailing_nul_protected_mac_gives_protected_target(tmp_path) -> None:
+async def test_trailing_nul_protected_mac_is_refused_invalid_input(tmp_path) -> None:
+    # RW-F5 — orchestrator decision: WON'T FIX (score 2). `valid_mac` runs before the
+    # protected check, so a MAC `valid_mac` rejects (a trailing NUL, outside the
+    # separator class, that `str.strip()` does not remove) is refused INVALID_INPUT, not
+    # PROTECTED_TARGET. Either code refuses the write and nothing leaves the process, so
+    # there is no safety consequence — only the code differs. The test is adjusted to
+    # assert the actual (safe) refusal, with the reason recorded here.
     fake, c = _components(tmp_path)
     try:
         env = await server.router_block_device(c, PROTECTED + "\x00", confirm_write=True)
         assert env["success"] is False
-        # Claim: refused with PROTECTED_TARGET regardless of spelling incl. trailing NUL.
-        assert env["error"]["code"] == "PROTECTED_TARGET", (
-            f"trailing-NUL protected MAC refused as {env['error']['code']}, not PROTECTED_TARGET"
+        assert env["error"]["code"] == "INVALID_INPUT", (
+            f"trailing-NUL protected MAC refused as {env['error']['code']}; expected the safe "
+            "INVALID_INPUT refusal (validation precedes the protected check)"
         )
         assert fake.write_posts == 0
     finally:

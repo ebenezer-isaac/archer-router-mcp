@@ -33,9 +33,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from archer_router_mcp import server
 from archer_router_mcp.core.ratelimit import RateLimiter
 from tests.fakes import FakeRouter, build_components
+
+# RW-F2 — orchestrator decision: the reboot limiter's decide-then-record / fail-open
+# shape is the same structural cause as the login breaker (RA-F1) and is DEFERRED to
+# X1b's `ReservationStore` (reserve-before-act, writability-proven, fail-closed). These
+# two tests are therefore expected to fail here until that refactor lands; they are
+# marked strict xfail so the day X1b fixes the cause they flip to a visible failure and
+# this marker is removed. See tests/breaker/r3/writes/FINDINGS.md (F2).
+_DEFERRED_RW_F2 = pytest.mark.xfail(
+    strict=True, reason="deferred to X1b ReservationStore; FINDINGS RW-F2"
+)
 
 PROTECTED = "00:00:5E:00:53:AA"
 
@@ -76,6 +88,7 @@ def _components(tmp_path: Path, clock: FakeClock):
     return fake, comps
 
 
+@_DEFERRED_RW_F2
 def test_decide_and_record_are_not_atomic(tmp_path) -> None:
     """Deterministic model of the async gap: two callers each decide before either
     records (caller A is awaiting its reboot POST when caller B reads status). The
@@ -94,6 +107,7 @@ def test_decide_and_record_are_not_atomic(tmp_path) -> None:
     )
 
 
+@_DEFERRED_RW_F2
 async def test_unwritable_state_dir_fails_open_to_unbounded_reboots(tmp_path) -> None:
     clock = FakeClock(1000.0)
     fake, c = _components(tmp_path, clock)

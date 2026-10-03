@@ -19,8 +19,8 @@ from archer_router_mcp.core.config import load_device_settings
 from archer_router_mcp.core.errors import ConfigError
 from archer_router_mcp.core.ratelimit import RateLimiter
 from archer_router_mcp.crypto import build_request_body
-from archer_router_mcp.tools import writes
-from archer_router_mcp.tools._write_common import wifi_write_confirmed
+from archer_router_mcp.errors import R0Unconfirmed
+from archer_router_mcp.tools._write_common import require_r0_confirmed, wifi_write_confirmed
 from tests.fakes import FakeRouter, build_components
 
 PROTECTED = "00:00:5E:00:53:AA"
@@ -69,6 +69,16 @@ def _rebind(fake, tmp_path):
         state_dir=tmp_path,
         extra_env={"ARCHER_ROUTER_ALLOW_WRITES": "true", "ARCHER_ROUTER_PROTECTED_MACS": PROTECTED},
     )
+
+
+@pytest.fixture
+def r0_confirmed(monkeypatch):
+    """Bypass the structural R0 gate so a test can exercise an INFERRED tool's live
+    read-modify-write logic. The gate itself (RW-F1) is covered by the breaker suite and
+    by ``test_require_r0_confirmed_doc_gate``; here we only want the body logic."""
+    from archer_router_mcp.tools import _write_common
+
+    monkeypatch.setattr(_write_common, "require_r0_confirmed", lambda *a, **k: None)
 
 
 # A uniform way to call every write tool with minimal valid args.
@@ -249,7 +259,7 @@ async def test_block_then_unblock(tmp_path) -> None:
         await c2.aclose()
 
 
-async def test_isolate_and_unisolate(tmp_path) -> None:
+async def test_isolate_and_unisolate(tmp_path, r0_confirmed) -> None:
     fake, c = _components(tmp_path)
     try:
         env = await server.router_isolate_device(c, DEV2, True, confirm_write=True)
@@ -264,7 +274,7 @@ async def test_isolate_and_unisolate(tmp_path) -> None:
         await c2.aclose()
 
 
-async def test_speed_limit_live(tmp_path) -> None:
+async def test_speed_limit_live(tmp_path, r0_confirmed) -> None:
     _fake, c = _components(tmp_path)
     try:
         env = await server.router_set_client_speed_limit(c, DEV2, 1000, 500, confirm_write=True)
@@ -287,7 +297,7 @@ async def test_set_access_mode_live(tmp_path) -> None:
         await c.aclose()
 
 
-async def test_set_wifi_schedule_live(tmp_path) -> None:
+async def test_set_wifi_schedule_live(tmp_path, r0_confirmed) -> None:
     _fake, c = _components(tmp_path)
     try:
         env = await server.router_set_wifi_schedule(
@@ -300,7 +310,7 @@ async def test_set_wifi_schedule_live(tmp_path) -> None:
         await c.aclose()
 
 
-async def test_wol_live(tmp_path) -> None:
+async def test_wol_live(tmp_path, r0_confirmed) -> None:
     fake, c = _components(tmp_path)
     try:
         env = await server.router_wol(c, DEV2, confirm_write=True)
@@ -334,14 +344,19 @@ async def test_protected_targets_refused(tmp_path, call) -> None:
         await c.aclose()
 
 
-async def test_unblock_and_unisolate_allowed_for_protected(tmp_path) -> None:
-    # Restoring access to a protected device must NOT be refused.
-    _fake, c = _components(tmp_path)
+async def test_restorative_writes_refused_for_protected(tmp_path) -> None:
+    # RW-F3: every MAC-targeting write refuses a protected MAC from the shared wrapper,
+    # including the restorative/benign ops (unblock, un-isolate, WoL). Protected devices
+    # are managed by hand.
+    fake, c = _components(tmp_path)
     try:
         env = await server.router_unblock_device(c, PROTECTED, confirm_write=True)
-        assert env["success"] is True  # idempotent "not blocked"
+        assert env["error"]["code"] == "PROTECTED_TARGET"
         env = await server.router_isolate_device(c, PROTECTED, False, confirm_write=True)
-        assert env["success"] is True
+        assert env["error"]["code"] == "PROTECTED_TARGET"
+        env = await server.router_wol(c, PROTECTED, confirm_write=True)
+        assert env["error"]["code"] == "PROTECTED_TARGET"
+        assert fake.write_posts == 0 and fake.wakeups == []
     finally:
         await c.aclose()
 
@@ -429,6 +444,59 @@ async def test_ip_outside_subnet_refused(tmp_path) -> None:
             c, DEV, "198.51.100.5", "Dev", confirm_write=True
         )
         assert env["error"]["details"]["reason"] == "outside_lan_subnet"
+        assert fake.write_posts == 0
+    finally:
+        await c.aclose()
+
+
+class TimeoutBeforeInsertRouter(FakeRouter):
+    """Reports ``timeout`` for the first ``insert`` BEFORE applying it, as a router whose
+    session expires before the write commits (the reply is lost, nothing landed)."""
+
+    def __init__(self, **kw) -> None:
+        super().__init__(stateful=True, envelope="https-plain", **kw)
+        self._timed_out_once = False
+
+    def _apply(self, module, form, operation, params):
+        if operation == "insert" and not self._timed_out_once:
+            self._timed_out_once = True
+            return {"errorcode": "timeout"}  # never applied
+        return super()._apply(module, form, operation, params)
+
+
+async def test_lost_reply_without_commit_reports_not_landed(tmp_path) -> None:
+    # RW-F6: a write whose reply is lost but which did NOT land is read back and reported
+    # not_landed (never resent). success is false so the caller can safely retry.
+    fake = TimeoutBeforeInsertRouter()
+    c = build_components(
+        fake,
+        envelope="https-plain",
+        state_dir=tmp_path,
+        extra_env={"ARCHER_ROUTER_ALLOW_WRITES": "true", "ARCHER_ROUTER_PROTECTED_MACS": PROTECTED},
+    )
+    try:
+        env = await server.router_add_dhcp_reservation(
+            c, DEV, "192.0.2.50", "Dev", confirm_write=True
+        )
+        assert env["success"] is False
+        assert env["error"]["code"] == "WRITE_OUTCOME_UNKNOWN"
+        assert env["error"]["details"]["outcome"] == "not_landed"
+        assert fake._state["dhcps:reservation"]["rows"] == []  # nothing committed, not resent
+    finally:
+        await c.aclose()
+
+
+async def test_reservation_refused_when_subnet_mask_unknown(tmp_path) -> None:
+    # RW-F7: with no mask the subnet cannot be confirmed; an in-/24-looking IP is refused
+    # subnet_unknown (fail closed) rather than allowed.
+    state = {"network:lan_ipv4": {"obj": {"ipaddr": "192.0.2.1"}}}  # no mask
+    fake, c = _components(tmp_path, state=state)
+    try:
+        env = await server.router_add_dhcp_reservation(
+            c, DEV, "192.0.2.50", "Dev", confirm_write=True
+        )
+        assert env["success"] is False
+        assert env["error"]["details"]["reason"] == "subnet_unknown"
         assert fake.write_posts == 0
     finally:
         await c.aclose()
@@ -535,7 +603,25 @@ def test_wifi_write_confirmed_doc_gate(tmp_path) -> None:
     assert wifi_write_confirmed(doc) is True
 
 
-async def test_speed_limit_over_max_refused(tmp_path) -> None:
+def test_require_r0_confirmed_doc_gate(tmp_path) -> None:
+    doc = tmp_path / "verified.md"
+    # Missing doc: every INFERRED tool is refused (fail closed).
+    with pytest.raises(R0Unconfirmed):
+        require_r0_confirmed("router_set_wifi", doc)
+    # A table that confirms only router_wol: it passes, others still refuse.
+    doc.write_text(
+        "# Verified AX53 write bodies\n\n"
+        "| tool | confirmed_on | note |\n"
+        "|------|--------------|------|\n"
+        "| router_wol | 2026-10-05 | wakeup body captured live |\n",
+        encoding="utf-8",
+    )
+    require_r0_confirmed("router_wol", doc)  # listed -> no raise
+    with pytest.raises(R0Unconfirmed):
+        require_r0_confirmed("router_set_wifi", doc)  # not listed
+
+
+async def test_speed_limit_over_max_refused(tmp_path, r0_confirmed) -> None:
     fake, c = _components(tmp_path)
     try:
         env = await server.router_set_client_speed_limit(c, DEV2, 9_000_000, 0, confirm_write=True)
@@ -574,8 +660,7 @@ async def test_set_wifi_dry_run_shape_only_and_unverified(tmp_path) -> None:
         await c.aclose()
 
 
-async def test_set_wifi_live_preserves_secret_but_never_echoes_it(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(writes, "wifi_write_confirmed", lambda *a, **k: True)
+async def test_set_wifi_live_preserves_secret_but_never_echoes_it(tmp_path, r0_confirmed) -> None:
     state = {
         "wireless:wireless_2g": {
             "obj": {"enable": "on", "ssid": "Home", "psk_key": "supersecretpass", "channel": "6"}

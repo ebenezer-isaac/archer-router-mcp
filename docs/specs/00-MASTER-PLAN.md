@@ -8,7 +8,7 @@
 | `tplink-easysmart-mcp` / `tplink_easysmart_mcp` / `tplink-easysmart-mcp` | TL-SG1016PE Easy Smart PoE | HTML pages + `*.cgi` form posts, cleartext login | `EASYSMART_*` | `switch_` | `02-SWITCH-SPEC.md` |
 | `archer-router-mcp` / `archer_router_mcp` / `archer-router-mcp` | Archer AX53 v1 (AX3000), UI 1.11.0 | `/cgi-bin/luci/;stok=<t>/admin/<mod>?form=<f>`, SG hardened profile | `ARCHER_ROUTER_*` | `router_` | `03-ROUTER-SPEC.md` |
 
-Optional fourth backend, **parked**: a TP-Link GPON ONT running in bridge/AP mode (no DHCP, relay only), older `/cgi/login` UI. Low value while it only relays; revisit after the three above.
+Optional fourth backend, **parked**: a bridge-mode gateway/ONT is out of scope for now.
 
 The three protocols share **nothing** below the MCP layer. The copied `core/` is scaffolding only: config, envelope, redaction, write-gating, lockout breaker, serialised request queue, transport base, CLI helpers, test harness. **Never** build a "shared stok protocol" abstraction — it is false.
 

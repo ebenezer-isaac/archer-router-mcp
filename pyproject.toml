@@ -11,14 +11,33 @@ license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"
 authors = [{ name = "Ebenezer Isaac" }]
-keywords = ["mcp", "tp-link", "archer", "router", "ax53"]
+keywords = [
+  "mcp",
+  "model-context-protocol",
+  "tp-link",
+  "archer",
+  "ax53",
+  "router",
+  "networking",
+  "dhcp",
+  "wifi",
+  "home-network",
+  "self-hosted",
+  "llm",
+]
 classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: System Administrators",
+  "Intended Audience :: Developers",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
   "Operating System :: OS Independent",
   "Topic :: System :: Networking",
+  "Topic :: Internet",
+  "Topic :: Home Automation",
 ]
 dependencies = [
   # FastMCP lives at mcp.server.fastmcp in the 1.x line; 2.x renamed it.
@@ -28,6 +47,12 @@ dependencies = [
   "pydantic>=2.6,<3",
   "python-dotenv>=1.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/ebenezer-isaac/archer-router-mcp"
+Repository = "https://github.com/ebenezer-isaac/archer-router-mcp"
+Issues = "https://github.com/ebenezer-isaac/archer-router-mcp/issues"
+Changelog = "https://github.com/ebenezer-isaac/archer-router-mcp/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = [

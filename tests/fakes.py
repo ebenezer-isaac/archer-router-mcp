@@ -10,6 +10,8 @@ errors (e.g. ``timeout``) for the re-login tests. No real network is touched.
 
 from __future__ import annotations
 
+import contextlib
+import copy
 import json
 import random
 import re
@@ -23,7 +25,38 @@ from cryptography.hazmat.primitives.asymmetric import padding
 
 from archer_router_mcp import crypto
 from archer_router_mcp.crypto import AesKey
+from archer_router_mcp.normalize import normalize_mac
 from archer_router_mcp.server import Components
+
+READ_OPS = frozenset({"read", "load", "loadDevice", "read_spf", "read_max"})
+
+
+def _default_state() -> dict[str, Any]:
+    """A fresh mutable table set for the stateful write tests (anonymised)."""
+    return {
+        "dhcps:reservation": {"rows": [], "max_rules": 32, "seq": 0},
+        "access_control:black_list": {"rows": [], "seq": 0},
+        "access_control:white_list": {"rows": [], "seq": 0},
+        "access_control:enable": {"obj": {"enable": "off"}},
+        "access_control:mode": {"obj": {"access_mode": "blacklist"}},
+        "iot_security:isolated_list": {"rows": [], "seq": 0},
+        "iot_security:enable": {"obj": {"enable": "on"}},
+        "smart_network:client_speed_limit": {
+            "rows": [],
+            "seq": 0,
+            "max": {"down_max": 1000000, "up_max": 1000000},
+        },
+        "wireless_schedule_v2:settings": {"obj": {"enable": "off", "rule_list": []}},
+        "wireless:wireless_2g": {
+            "obj": {"enable": "on", "ssid": "Home", "encryption": "psk2", "channel": "6"}
+        },
+        "wireless:wireless_5g": {
+            "obj": {"enable": "on", "ssid": "Home-5G", "encryption": "psk2", "channel": "36"}
+        },
+        "network:lan_ipv4": {"obj": {"ipaddr": "192.0.2.1", "mask": "255.255.255.0"}},
+        "wol:device": {"rows": [], "seq": 0},
+    }
+
 
 _FIX = json.loads(
     (Path(__file__).parent / "fixtures" / "router_auth_vectors.json").read_text(encoding="utf-8")
@@ -65,6 +98,8 @@ class FakeRouter:
         login_html: bool = False,
         authed_payload: dict[str, Any] | None = None,
         reads: dict[str, Any] | None = None,
+        stateful: bool = False,
+        state: dict[str, Any] | None = None,
     ) -> None:
         self._password = password
         self._envelope = envelope
@@ -80,6 +115,11 @@ class FakeRouter:
         self._login_html = login_html
         self._authed_payload = authed_payload or {"ok": True}
         self._reads = reads or {}
+        self._stateful = stateful
+        self._state = _default_state()
+        if state:
+            for key, entry in state.items():
+                self._state[key] = copy.deepcopy(entry)
         self._session_aes: dict[str, AesKey] = {}
         self.fingerprint = FINGERPRINT_A
         # observability
@@ -88,6 +128,11 @@ class FakeRouter:
         self.paths: list[tuple[str, str | None]] = []
         self.authed_requests: list[tuple[str, str, str]] = []  # (form, data_b64, sign)
         self.authed_ops: list[tuple[str, str, str]] = []  # (module, form, operation)
+        # write observability (stateful mode)
+        self.write_posts = 0  # count of MUTATING ops actually received
+        self.mutations: list[tuple[str, str, str, dict[str, Any]]] = []
+        self.reboots = 0
+        self.wakeups: list[Any] = []
 
     # -- httpx wiring --------------------------------------------------------
 
@@ -207,8 +252,109 @@ class FakeRouter:
         if self._envelope != "https-plain":
             pairs = _parse_pairs(body)
             self.authed_requests.append((form or "", unquote(pairs["data"]), pairs["sign"]))
+        if self._stateful:
+            params = self._decode_params(plain)
+            payload = self._apply(module, form or "", operation, params)
+            return self._enveloped(aes, payload)
         payload = self._read_payload(module, form)
         return self._enveloped(aes, payload)
+
+    # -- stateful write engine (opt-in via stateful=True) --------------------
+
+    @staticmethod
+    def _decode_params(plain: str) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for key, value in _parse_pairs(plain).items():
+            decoded: Any = unquote(value)
+            # JSON-stringified object/array values (new=, old=, rule_list=, ...) are
+            # decoded back to structures, as the real router parses them.
+            if isinstance(decoded, str) and decoded[:1] in ("[", "{"):
+                with contextlib.suppress(ValueError):
+                    decoded = json.loads(decoded)
+            out[key] = decoded
+        if "index" in out:
+            with contextlib.suppress(TypeError, ValueError):
+                out["index"] = int(out["index"])
+        return out
+
+    def _apply(
+        self, module: str, form: str, operation: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        if form == "logout" or operation == "logout":
+            return {"success": True}
+        key = f"{module}:{form}"
+        entry = self._state.setdefault(key, {"rows": [], "seq": 0})
+        if operation in READ_OPS:
+            return self._state_read(entry)
+        self.write_posts += 1
+        self.mutations.append((module, form, operation, params))
+        if operation == "reboot":
+            self.reboots += 1
+            return {"success": True}
+        if operation == "wakeup":
+            self.wakeups.append(params.get("mac"))
+            return {"success": True}
+        if "rows" in entry:
+            self._mutate_rows(entry, operation, params)
+        else:
+            obj = entry.setdefault("obj", {})
+            if operation in ("write", "write_spf"):
+                for field, value in params.items():
+                    if field != "operation":
+                        obj[field] = value
+        return {"success": True}
+
+    @staticmethod
+    def _state_read(entry: dict[str, Any]) -> dict[str, Any]:
+        if "rows" in entry:
+            payload: dict[str, Any] = {"success": True, "data": [dict(r) for r in entry["rows"]]}
+            if "max_rules" in entry:
+                payload["max_rules"] = entry["max_rules"]
+            if "max" in entry:
+                payload.update(entry["max"])
+            return payload
+        return {"success": True, "data": dict(entry.get("obj", {}))}
+
+    def _mutate_rows(self, entry: dict[str, Any], operation: str, params: dict[str, Any]) -> None:
+        rows: list[dict[str, Any]] = entry["rows"]
+        if operation == "insert":
+            new = params.get("new") or {}
+            row = dict(new)
+            entry["seq"] = entry.get("seq", 0) + 1
+            row.setdefault("key", f"k{entry['seq']}")
+            rows.append(row)
+        elif operation == "remove":
+            key = params.get("key")
+            mac = params.get("mac")
+            entry["rows"] = [r for r in rows if not self._row_matches(r, key, mac)]
+        elif operation == "update":
+            key = params.get("key")
+            new = params.get("new") or {}
+            for row in rows:
+                if str(row.get("key")) == str(key):
+                    row.update(new)
+        elif operation in ("write", "block", "access"):
+            if isinstance(params.get("new"), dict):
+                payload_row = dict(params["new"])
+            else:
+                payload_row = {k: v for k, v in params.items() if k != "operation"}
+            mac = payload_row.get("mac")
+            if mac is not None:
+                existing = next(
+                    (r for r in rows if normalize_mac(r.get("mac")) == normalize_mac(mac)), None
+                )
+                if existing is not None:
+                    existing.update(payload_row)
+                    return
+            entry["seq"] = entry.get("seq", 0) + 1
+            payload_row.setdefault("key", f"k{entry['seq']}")
+            rows.append(payload_row)
+
+    @staticmethod
+    def _row_matches(row: dict[str, Any], key: Any, mac: Any) -> bool:
+        if key is not None and str(row.get("key")) == str(key):
+            return True
+        return mac is not None and normalize_mac(row.get("mac")) == normalize_mac(mac)
 
     def _decrypt_body(self, aes: AesKey | None, body: str) -> str:
         if aes is None:  # pragma: no cover - guarded by caller

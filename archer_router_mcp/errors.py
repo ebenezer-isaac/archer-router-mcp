@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .core.errors import AuthFailed, DeviceError, TokenExpired
+from .core.errors import AuthFailed, DeviceError, PreconditionFailed, TokenExpired
 
 __all__ = [
     "EXCEEDED_MAX_ATTEMPTS",
@@ -22,7 +22,11 @@ __all__ = [
     "AuthFailed",
     "DeviceError",
     "LockedOut",
+    "PreconditionFailed",
+    "ProtectedTarget",
     "ProtocolError",
+    "R0Unconfirmed",
+    "RateLimited",
     "RouterError",
     "SessionConflict",
     "TokenExpired",
@@ -118,3 +122,44 @@ class RouterError(DeviceError):
 
     def details(self) -> dict[str, Any]:
         return {"code": self.code, "meaning": self.meaning}
+
+
+class ProtectedTarget(DeviceError):
+    """A write targeted a MAC listed in ``ARCHER_ROUTER_PROTECTED_MACS``.
+
+    Blocking, limiting, isolating or un-reserving a protected device (the server's
+    or owner's own) is refused outright; no network call is made.
+    """
+
+    kind = "PROTECTED_TARGET"
+
+    def __init__(self, mac: str, action: str) -> None:
+        self.mac = mac
+        self.action = action
+        super().__init__(
+            f"Refusing to {action} the protected device {mac}. It is listed in "
+            "ARCHER_ROUTER_PROTECTED_MACS; remove it there first if this is intended."
+        )
+
+    def details(self) -> dict[str, Any]:
+        return {"mac": self.mac, "action": self.action}
+
+
+class RateLimited(DeviceError):
+    """A rate-limited action (reboot) was attempted inside its cooldown window."""
+
+    kind = "RATE_LIMITED"
+
+    def __init__(self, message: str, *, retry_after_s: float, next_allowed: float) -> None:
+        self.retry_after_s = retry_after_s
+        self.next_allowed = next_allowed
+        super().__init__(message)
+
+    def details(self) -> dict[str, Any]:
+        return {"retry_after_s": self.retry_after_s, "next_allowed": self.next_allowed}
+
+
+class R0Unconfirmed(DeviceError):
+    """A live write whose exact body is unverified until the R0 live capture lands."""
+
+    kind = "R0_UNCONFIRMED"

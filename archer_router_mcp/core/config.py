@@ -38,6 +38,8 @@ DEVICE_ENV_SUFFIXES: dict[str, str] = {
     "ENVELOPE": "envelope",
     "PRESENCE_MAX_MB": "presence_max_mb",
     "PRESENCE_INTERVAL_S": "presence_interval_s",
+    "PROTECTED_MACS": "protected_macs",
+    "REBOOT_MIN_INTERVAL_S": "reboot_min_interval_s",
 }
 GLOBAL_ENV_SUFFIXES: dict[str, str] = {
     "TRANSPORT": "mcp_transport",
@@ -48,12 +50,26 @@ GLOBAL_ENV_SUFFIXES: dict[str, str] = {
 
 _HOST_LABEL = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 _NUMERIC_DOTTED = re.compile(r"^[\d.]+$")
+_MAC_HEX12 = re.compile(r"^[0-9a-f]{12}$")
+_MAC_SEP_CHARS = re.compile(r"[\s:.\-]")
 _USERNAME = re.compile(r"^[\x21-\x7e]{1,64}$")
 _CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
 _PREFIX = re.compile(r"^[A-Z][A-Z0-9]*_(?:[A-Z0-9]+_)*$")
 _HOST_ERROR = "must be a hostname or IP address (no scheme, port or path)"
 
 Port = Annotated[int, Field(ge=1, le=65535)]
+
+
+def canonical_mac(value: str) -> str | None:
+    """Return ``HH:HH:HH:HH:HH:HH`` upper-case, or ``None`` if not a MAC.
+
+    Device-agnostic (the device layer has its own copy for row parsing); kept here
+    so settings validation does not depend on a device module.
+    """
+    compact = _MAC_SEP_CHARS.sub("", value.strip()).lower()
+    if not _MAC_HEX12.fullmatch(compact):
+        return None
+    return ":".join(compact[i : i + 2] for i in range(0, 12, 2)).upper()
 
 
 def validate_host(value: object) -> str:
@@ -98,6 +114,12 @@ class DeviceSettings(BaseModel):
     # interval. An interval of 0 disables the background sampler.
     presence_max_mb: float = Field(default=20.0, gt=0.0, le=1024.0, allow_inf_nan=False)
     presence_interval_s: float = Field(default=0.0, ge=0.0, le=86400.0, allow_inf_nan=False)
+    # Write safety (R4): the server's and owner's own devices. REQUIRED (non-empty)
+    # whenever writes are enabled; any block/limit/isolate/reservation-remove that
+    # targets one of these MACs is refused. Parsed from a comma/space-separated list.
+    protected_macs: tuple[str, ...] = ()
+    # Minimum seconds between accepted reboots (persisted under STATE_DIR).
+    reboot_min_interval_s: float = Field(default=900.0, ge=0.0, le=86400.0, allow_inf_nan=False)
 
     @field_validator("host", mode="before")
     @classmethod
@@ -130,6 +152,26 @@ class DeviceSettings(BaseModel):
         if len(text) > 1024:
             raise ValueError("must be at most 1024 characters")
         return text
+
+    @field_validator("protected_macs", mode="before")
+    @classmethod
+    def _validate_protected_macs(cls, value: object) -> tuple[str, ...]:
+        if value is None or value == "":
+            return ()
+        if isinstance(value, str):
+            tokens = [tok for tok in re.split(r"[,\s]+", value.strip()) if tok]
+        elif isinstance(value, (list, tuple)):
+            tokens = [str(tok) for tok in value]
+        else:
+            raise ValueError("must be a comma- or space-separated list of MAC addresses")
+        out: list[str] = []
+        for tok in tokens:
+            mac = canonical_mac(tok)
+            if mac is None:
+                raise ValueError("contains an entry that is not a valid MAC address")
+            if mac not in out:
+                out.append(mac)
+        return tuple(out)
 
     @field_validator("username")
     @classmethod

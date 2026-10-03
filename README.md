@@ -25,6 +25,16 @@ the network.
   after a handful of failures, so the client never spends attempts blindly.
 - **Writes gated twice.** `ARCHER_ROUTER_ALLOW_WRITES=true` **and**
   `confirm_write=true` per call, plus `ARCHER_ROUTER_DRY_RUN` to preview bodies.
+- **Protected devices are managed by hand.** Every MAC listed in
+  `ARCHER_ROUTER_PROTECTED_MACS` (the server's and owner's own devices) is refused by
+  **every** MAC-targeting write — block/unblock, limit, isolate/un-isolate,
+  reservation-remove and Wake-on-LAN alike (`PROTECTED_TARGET`). To change a protected
+  device, remove it from that list first, or use the router's own UI.
+- **Inferred write bodies are held until verified.** Writes whose exact body is still
+  inferred (`router_set_wifi`, `router_set_client_speed_limit`,
+  `router_set_wifi_schedule`, `router_isolate_device`, `router_wol`) refuse a live write
+  with `R0_UNCONFIRMED` until `docs/protocol/archer-ax53-verified.md` records them;
+  `ARCHER_ROUTER_DRY_RUN=true` still returns the planned body for review.
 - **Uniform envelope.** Every tool returns `{success, data, error}`; credential
   fields are redacted from all output.
 

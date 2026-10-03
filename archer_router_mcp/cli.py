@@ -48,6 +48,12 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="With --check-auth: perform exactly one login attempt.",
     )
+    parser.add_argument(
+        "--force-takeover",
+        action="store_true",
+        help="With --check-auth --login: evict another admin session (only when "
+        "ARCHER_ROUTER_FORCE_SESSION_TAKEOVER=true is also set). Off by default.",
+    )
     parser.add_argument("--show", action="store_true", help="breaker: show the current state.")
     parser.add_argument("--clear", action="store_true", help="breaker: clear the breaker state.")
     return parser
@@ -58,13 +64,17 @@ def list_tools() -> list[str]:
     return list(TOOLS)
 
 
-def _run_check_auth(do_login: bool, components: server.Components | None) -> int:
+def _run_check_auth(
+    do_login: bool, components: server.Components | None, *, force_takeover: bool = False
+) -> int:
     configure_logging(server.LOG_LEVEL_VAR)
 
     async def _go() -> dict:
         comps = components or server.Components.from_env()
         try:
-            return await server.router_check_auth(comps, do_login=do_login)
+            return await server.router_check_auth(
+                comps, do_login=do_login, force_takeover=force_takeover
+            )
         finally:
             if components is None:
                 await comps.aclose()
@@ -103,7 +113,7 @@ def main(argv: Sequence[str] | None = None, *, components: server.Components | N
     if args.list_tools:
         return emit_lines(list_tools())
     if args.check_auth:
-        return _run_check_auth(args.login, components)
+        return _run_check_auth(args.login, components, force_takeover=args.force_takeover)
     if args.command == "breaker":
         return _run_breaker(args.show, args.clear, components)
     if args.command == "serve":

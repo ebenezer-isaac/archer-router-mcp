@@ -37,6 +37,17 @@ def normalize_mac(value: Any) -> str | None:
     return ":".join(compact[i : i + 2] for i in range(0, 12, 2)).upper()
 
 
+def mac_dashed(value: Any) -> str | None:
+    """Return a MAC in upper-case dash form (``00-00-5E-00-53-01``), or ``None``.
+
+    The AX53 DHCP-reservation insert body uses this form (verified against
+    tplinkrouterc6u PR #170); :func:`normalize_mac` gives the colon form used for
+    display and comparison.
+    """
+    colon = normalize_mac(value)
+    return colon.replace(":", "-") if colon is not None else None
+
+
 def decode_name(value: Any) -> str | None:
     """Percent-decode a device/host name and drop control characters.
 

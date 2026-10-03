@@ -2,15 +2,20 @@ from __future__ import annotations
 
 import pytest
 
-from archer_router_mcp.core import breaker, envelope
-from archer_router_mcp.core.config import load_device_settings
+from archer_router_mcp.config import load_device_settings
+from archer_router_mcp.core import envelope
+from archer_router_mcp.core.breaker import LoginBreaker, canonical_device_key
 from archer_router_mcp.core.errors import (
     ApiError,
     AuthFailed,
+    BreakerOpen,
+    InvalidInput,
     LockoutGuard,
+    LoginDisabled,
     PreconditionFailed,
     TokenExpired,
 )
+from archer_router_mcp.core.state import Outcome
 from archer_router_mcp.core.tooling import run_tool
 from archer_router_mcp.core.write_gate import check_write_gate
 from tests.helpers import ROUTER_PREFIX, router_env
@@ -114,54 +119,33 @@ def test_write_gate_passes_with_both_keys() -> None:
     assert check_write_gate(_settings(ALLOW_WRITES="true"), "delete", True) is None
 
 
-# ---- lockout helpers ------------------------------------------------------------
+# ---- login breaker (reserve/release API; full contract in tests/conformance) -------
 
 
-def test_ledger_is_immutable_and_rebuilt() -> None:
-    ledger = breaker.LoginLedger()
-    after = breaker.record_failure(ledger, {"x": 1})
-    assert (ledger.failed, after.failed) == (0, 1)
-    assert breaker.record_success(after).successful == 1
+def test_breaker_reserve_release_spends_budget(tmp_path) -> None:
+    b = LoginBreaker(tmp_path, canonical_device_key("192.0.2.1"), max_failures=1)
+    b.reserve_attempt().release(Outcome.FAILURE, failure={"x": 1})
+    assert b.status()["failures"] == 1
+    # Budget of 1 is spent: the next reservation is refused (fail closed).
+    with pytest.raises(BreakerOpen):
+        b.reserve_attempt()
 
 
-def test_login_disabled_guard_names_variable() -> None:
-    with pytest.raises(LockoutGuard, match="ARCHER_ROUTER_LOGIN_DISABLED"):
-        breaker.check_login_allowed(
-            breaker.LoginLedger(), _settings(LOGIN_DISABLED="true"), explicit=True
-        )
+def test_breaker_login_disabled_is_owned_by_the_breaker(tmp_path) -> None:
+    b = LoginBreaker(
+        tmp_path, "dev", login_disabled=True, disabled_hint="ARCHER_ROUTER_LOGIN_DISABLED=true"
+    )
+    with pytest.raises(LoginDisabled, match="frozen"):
+        b.reserve_attempt()
+    assert not b.path.exists()  # no store I/O at all when frozen
 
 
-def test_check_login_allowed_budget_and_implicit_rules() -> None:
-    one_failure = breaker.record_failure(breaker.LoginLedger(), {"x": 1})
-    # Under a higher budget, an implicit login after any failure is still refused,
-    while_under_budget = _settings(MAX_LOGIN_FAILURES="3")
-    with pytest.raises(LockoutGuard, match="previous login failed"):
-        breaker.check_login_allowed(one_failure, while_under_budget, explicit=False)
-    # but an explicit login is allowed while the budget has room.
-    breaker.check_login_allowed(one_failure, while_under_budget, explicit=True)
-    # With the default budget of 1, one failure exhausts it even for explicit logins.
-    with pytest.raises(LockoutGuard, match="failed login"):
-        breaker.check_login_allowed(one_failure, _settings(), explicit=True)
-
-
-@pytest.mark.parametrize(
-    ("remaining", "explicit", "refused"),
-    [
-        (None, False, False),
-        (0, True, True),
-        (-1, True, True),
-        (1, True, False),
-        (1, False, True),
-        (2, False, True),
-        (3, False, False),
-    ],
-)
-def test_remaining_attempt_guard(remaining, explicit, refused) -> None:
-    if refused:
-        with pytest.raises(LockoutGuard):
-            breaker.check_remaining_attempts(remaining, explicit=explicit)
-    else:
-        breaker.check_remaining_attempts(remaining, explicit=explicit)
+def test_breaker_success_does_not_clear_failures(tmp_path) -> None:
+    b = LoginBreaker(tmp_path, "dev", max_failures=3)
+    b.reserve_attempt().release(Outcome.FAILURE)
+    b.reserve_attempt().release(Outcome.SUCCESS)
+    snap = b.status()
+    assert snap["failures"] == 1 and snap["successes"] == 1
 
 
 # ---- run_tool -----------------------------------------------------------------
@@ -172,7 +156,8 @@ async def test_run_tool_maps_errors_and_redacts() -> None:
         return {"stok": "s", "ok": 1}
 
     async def bad_input():
-        raise ValueError("nope")
+        # Only InvalidInput is treated as client input; a plain ValueError is internal.
+        raise InvalidInput("nope")
 
     async def boom():
         raise RuntimeError("internal detail")

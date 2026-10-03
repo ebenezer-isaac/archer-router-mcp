@@ -11,72 +11,73 @@ from pathlib import Path
 import pytest
 
 from archer_router_mcp import crypto
-from archer_router_mcp.core import breaker, transport
-from archer_router_mcp.core.config import load_device_settings, load_global_settings
-from archer_router_mcp.core.errors import ConfigError, LockoutGuard, TransportError
+from archer_router_mcp.config import load_device_settings, load_global_settings
+from archer_router_mcp.core import transport
+from archer_router_mcp.core.breaker import LoginBreaker, canonical_device_key
+from archer_router_mcp.core.config import normalise_fingerprint
+from archer_router_mcp.core.errors import BreakerOpen, ConfigError, TlsPinMismatch
 from archer_router_mcp.core.redact import REDACTED, redact
+from archer_router_mcp.core.state import Outcome
 from tests.helpers import DOC_HOST, ROUTER_PREFIX, router_env
 
-# --------------------------------------------------------------- persistent breaker
+# ----------------------------------- persistent login breaker (reserve/release API)
+# The full device-agnostic contract lives in tests/conformance/test_breaker_contract.py
+# (hashed by core/VERSION and run by the gate). These check the router's own wiring.
 
 
-def _settings(state_dir: Path, **overrides: str):
-    return load_device_settings(ROUTER_PREFIX, router_env(STATE_DIR=str(state_dir), **overrides))
+def _key() -> str:
+    return canonical_device_key(DOC_HOST)
 
 
 def test_breaker_persists_failures_across_instances(tmp_path: Path) -> None:
-    s = _settings(tmp_path)
-    first = breaker.LoginBreaker(tmp_path, s)
-    first.check(explicit=True)  # fresh: allowed
-    first.record_failure({"error": "login failed", "failure_count": 1})
+    first = LoginBreaker(tmp_path, _key(), max_failures=1)
+    first.reserve_attempt().release(Outcome.FAILURE, failure={"error": "login failed"})
     # A brand-new instance reads the same file and now refuses (budget of 1).
-    second = breaker.LoginBreaker(tmp_path, s)
-    with pytest.raises(LockoutGuard, match="failed login"):
-        second.check(explicit=True)
-    assert second.snapshot().failed == 1
+    second = LoginBreaker(tmp_path, _key(), max_failures=1)
+    with pytest.raises(BreakerOpen):
+        second.reserve_attempt()
+    assert second.status()["failures"] == 1
 
 
 def test_breaker_clear_reopens(tmp_path: Path) -> None:
-    s = _settings(tmp_path)
-    b = breaker.LoginBreaker(tmp_path, s)
-    b.record_failure({"error": "login failed"})
+    b = LoginBreaker(tmp_path, _key(), max_failures=1)
+    b.reserve_attempt().release(Outcome.FAILURE)
     b.clear()
-    b.check(explicit=True)  # no raise
-    assert b.snapshot().failed == 0
+    b.reserve_attempt().release(Outcome.SUCCESS)  # no raise after clear
+    assert b.status()["failures"] == 0
 
 
 def test_breaker_file_is_atomic_and_restrictive(tmp_path: Path) -> None:
-    s = _settings(tmp_path)
-    b = breaker.LoginBreaker(tmp_path, s)
-    b.record_success()
+    b = LoginBreaker(tmp_path, _key(), max_failures=5)
+    b.reserve_attempt().release(Outcome.SUCCESS)
     assert b.path.exists()
     # No leftover temp files from the atomic write.
-    assert list(tmp_path.glob(".breaker-*")) == []
+    assert list(tmp_path.glob("*.tmp")) == []
 
 
-@pytest.mark.parametrize("content", ["{ not json", "[]", '{"failed": -1}', '{"failed": "x"}', ""])
+@pytest.mark.parametrize(
+    "content", ["{ not json", "[]", '{"failures": -1}', '{"failures": "x"}', ""]
+)
 def test_corrupt_breaker_file_fails_closed(tmp_path: Path, content: str) -> None:
-    s = _settings(tmp_path)
-    (tmp_path / breaker.STATE_FILENAME).write_text(content, encoding="utf-8")
-    b = breaker.LoginBreaker(tmp_path, s)
-    assert b.snapshot().corrupt is True
-    with pytest.raises(LockoutGuard, match="unreadable"):
-        b.check(explicit=True)
-    assert b.show()["state"] == "corrupt"
+    b = LoginBreaker(tmp_path, _key(), max_failures=1)
+    b.path.write_text(content, encoding="utf-8")
+    with pytest.raises(BreakerOpen):
+        b.reserve_attempt()
+    assert b.status()["state"] == "open"  # --show must never crash on a bad file
 
 
 def test_missing_breaker_file_is_allowing(tmp_path: Path) -> None:
-    assert breaker.load_ledger(tmp_path / "nope.json").corrupt is False
-    s = _settings(tmp_path)
-    breaker.LoginBreaker(tmp_path, s).check(explicit=True)  # no raise
+    # A fresh breaker on an empty dir admits the first attempt.
+    LoginBreaker(tmp_path, _key(), max_failures=1).reserve_attempt().release(Outcome.SUCCESS)
 
 
-def test_breaker_show_is_json_safe(tmp_path: Path) -> None:
-    s = _settings(tmp_path)
-    b = breaker.LoginBreaker(tmp_path, s)
-    b.record_failure({"error": "login failed", "failure_count": 2})
-    json.dumps(b.show())  # must not raise
-    assert b.show()["failed"] == 1
+def test_breaker_status_is_json_safe(tmp_path: Path) -> None:
+    b = LoginBreaker(tmp_path, _key(), max_failures=5)
+    b.reserve_attempt().release(
+        Outcome.FAILURE, failure={"error": "login failed", "failure_count": 2}
+    )
+    json.dumps(b.status())  # must not raise
+    assert b.status()["failures"] == 1
 
 
 # ------------------------------------------------------------------- rule redaction
@@ -185,22 +186,22 @@ def test_prefix_isolation_still_holds_with_fail_loud() -> None:
         ("ab " * 31 + "ab", "ab" * 32),
     ],
 )
-def test_normalize_fingerprint(raw: str, expected: str) -> None:
-    assert transport.normalize_fingerprint(raw) == expected
+def test_normalise_fingerprint(raw: str, expected: str) -> None:
+    assert normalise_fingerprint(raw) == expected
 
 
 @pytest.mark.parametrize("bad", ["", "zz" * 32, "ab" * 31, "ab" * 33, 123])
-def test_normalize_fingerprint_rejects(bad: object) -> None:
-    with pytest.raises(ValueError, match="fingerprint"):
-        transport.normalize_fingerprint(bad)  # type: ignore[arg-type]
+def test_normalise_fingerprint_rejects(bad: object) -> None:
+    with pytest.raises(ValueError, match="hex"):
+        normalise_fingerprint(bad)
 
 
-def test_verify_fingerprint_pin() -> None:
-    transport.verify_fingerprint_pin("AB" * 32, "ab" * 32)  # match, no raise
-    with pytest.raises(TransportError, match="does not match"):
-        transport.verify_fingerprint_pin("ab" * 32, "cd" * 32)
-    with pytest.raises(TransportError, match="could not be observed"):
-        transport.verify_fingerprint_pin("ab" * 32, None)
+def test_verify_cert_fingerprint_matches_and_mismatches() -> None:
+    der = b"leaf-certificate-der-bytes"
+    pin = transport.fingerprint_sha256(der)
+    transport.verify_cert_fingerprint(der, pin)  # match, no raise
+    with pytest.raises(TlsPinMismatch, match="does not match"):
+        transport.verify_cert_fingerprint(b"a-different-certificate", pin)
 
 
 def test_fingerprint_sha256_known_value() -> None:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from archer_router_mcp.core.config import (
+from archer_router_mcp.config import (
     DeviceSettings,
     host_is_set,
     load_device_settings,

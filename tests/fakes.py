@@ -24,6 +24,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 
 from archer_router_mcp import crypto
+from archer_router_mcp.core import transport as core_transport
 from archer_router_mcp.crypto import AesKey
 from archer_router_mcp.normalize import normalize_mac
 from archer_router_mcp.server import Components
@@ -72,8 +73,33 @@ DEFAULT_CERT = ["US FCC", "SG CLS L1 STAGE2"]
 FAKE_STOK = "FAKESTOK000000000000"  # synthetic, not a real token
 FAKE_SYSAUTH = "FAKESYSAUTH000000000"
 DEFAULT_SEQ = 1000
-FINGERPRINT_A = "aa" * 32
-FINGERPRINT_B = "bb" * 32
+# Synthetic leaf-certificate DER bytes and their real SHA-256 fingerprints. The
+# transport now reads the fingerprint from the certificate the serving connection
+# presents (no side-channel probe), so the fake attaches one to every response.
+CERT_A_DER = b"archer-fake-leaf-certificate-A"
+CERT_B_DER = b"archer-fake-leaf-certificate-B"
+FINGERPRINT_A = core_transport.fingerprint_sha256(CERT_A_DER)
+FINGERPRINT_B = core_transport.fingerprint_sha256(CERT_B_DER)
+
+
+class FakeSSLObject:
+    """Minimal ``ssl_object`` exposing a DER leaf certificate (binary form)."""
+
+    def __init__(self, der: bytes) -> None:
+        self._der = der
+
+    def getpeercert(self, binary_form: bool = True) -> bytes:
+        return self._der
+
+
+class FakeNetworkStream:
+    """Minimal httpcore network stream exposing a :class:`FakeSSLObject`."""
+
+    def __init__(self, der: bytes) -> None:
+        self._ssl_object = FakeSSLObject(der)
+
+    def get_extra_info(self, name: str) -> object | None:
+        return self._ssl_object if name == "ssl_object" else None
 
 
 def _parse_pairs(body: str) -> dict[str, str]:
@@ -121,7 +147,9 @@ class FakeRouter:
             for key, entry in state.items():
                 self._state[key] = copy.deepcopy(entry)
         self._session_aes: dict[str, AesKey] = {}
-        self.fingerprint = FINGERPRINT_A
+        # The leaf certificate this fake "presents" on every TLS connection; the
+        # transport derives ``observed_fingerprint`` from it (default: CERT_A_DER).
+        self.cert_der = CERT_A_DER
         # observability
         self.login_posts = 0
         self.confirm_values: list[bool] = []
@@ -137,10 +165,14 @@ class FakeRouter:
     # -- httpx wiring --------------------------------------------------------
 
     def transport(self) -> httpx.MockTransport:
-        return httpx.MockTransport(self._route)
+        def route(request: httpx.Request) -> httpx.Response:
+            response = self._route(request)
+            # Attach the leaf certificate to the serving connection so the transport's
+            # real-connection pin check / fingerprint observation has a cert to read.
+            response.extensions["network_stream"] = FakeNetworkStream(self.cert_der)
+            return response
 
-    async def probe(self) -> str:
-        return self.fingerprint
+        return httpx.MockTransport(route)
 
     def _route(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -390,7 +422,6 @@ def build_components(
     envelope: str = "http-encrypted",
     state_dir: str | Path,
     extra_env: dict[str, str] | None = None,
-    fingerprint_probe: Any = None,
     tls_fingerprint: str | None = None,
     rng: random.Random | None = None,
     clock: Any = None,
@@ -405,11 +436,9 @@ def build_components(
         env["ARCHER_ROUTER_TLS_FINGERPRINT_SHA256"] = tls_fingerprint
     if extra_env:
         env.update(extra_env)
-    probe = fingerprint_probe if fingerprint_probe is not None else fake.probe
     return Components.from_env(
         env,
         http_transport=fake.transport(),
-        fingerprint_probe=probe,
         rng=rng or random.Random(12345),
         clock=clock,
     )

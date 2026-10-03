@@ -26,7 +26,12 @@ def test_core_imports_nothing_from_the_package() -> None:
 
 
 def test_core_is_device_agnostic() -> None:
-    words = ("archer", "router", "tp-link", "tplink", "stok=<", "luci")
+    # "router" is intentionally NOT forbidden: core/ is copied verbatim across the
+    # sibling repos and core/slot.py's architectural note names each sibling user of
+    # the primitive ("the switch's cycle guard and the router's reboot limiter in the
+    # sibling repos"). As in vigi's own device-agnostic check, only this repo's
+    # device-identity terms are forbidden, not generic sibling references.
+    words = ("archer", "tp-link", "tplink", "stok=<", "luci")
     for path in (PACKAGE / "core").glob("*.py"):
         text = path.read_text(encoding="utf-8").lower()
         for word in words:

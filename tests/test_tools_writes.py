@@ -450,6 +450,22 @@ async def test_ip_outside_subnet_refused(tmp_path) -> None:
         await c.aclose()
 
 
+def test_lan_mask_recognised_from_mask_type_field() -> None:
+    """AX53 (UI 1.11.0) returns the LAN netmask under ``mask_type`` (verified live
+    2026-10-03), not ``mask``/``netmask``. The subnet check must use it rather than
+    falling through to ``subnet_unknown`` and refusing every reservation."""
+    from archer_router_mcp.errors import PreconditionFailed
+    from archer_router_mcp.tools.writes import _check_in_lan_subnet
+
+    lan = {"ipaddr": "192.0.2.1", "mask_type": "255.255.255.0"}
+    # In-subnet IP must pass (no raise) now that mask_type is honoured.
+    _check_in_lan_subnet(lan, "192.0.2.196")
+    # Out-of-subnet IP is refused as a real subnet violation, not "unknown".
+    with pytest.raises(PreconditionFailed) as excinfo:
+        _check_in_lan_subnet(lan, "198.51.100.5")
+    assert excinfo.value.reason == "outside_lan_subnet"
+
+
 class TimeoutBeforeInsertRouter(FakeRouter):
     """Reports ``timeout`` for the first ``insert`` BEFORE applying it, as a router whose
     session expires before the write commits (the reply is lost, nothing landed)."""

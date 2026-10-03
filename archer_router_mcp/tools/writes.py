@@ -143,7 +143,10 @@ def _check_in_lan_subnet(lan_raw: Any, cip: str) -> None:
     """
     fields = obj_of(lan_raw)
     ipaddr = first_present(fields, ("ipaddr", "lan_ipv4_ipaddr", "ip"))
-    mask = first_present(fields, ("mask", "netmask"))
+    # AX53 (UI 1.11.0) returns the LAN netmask under ``mask_type`` (e.g. "255.255.255.0"),
+    # not ``mask``/``netmask`` — verified live. Without it the check fell through to
+    # ``subnet_unknown`` and refused every reservation.
+    mask = first_present(fields, ("mask", "netmask", "mask_type"))
     try:
         target = ipaddress.ip_address(cip)
     except ValueError:  # pragma: no cover - cip is pre-validated by valid_ipv4

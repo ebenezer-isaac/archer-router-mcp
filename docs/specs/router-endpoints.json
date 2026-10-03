@@ -404,7 +404,7 @@
    "request": {
     "operation": "read"
    },
-   "notes": "Owner policy decision; read-only in MCP v1.",
+   "notes": "Policy decision; read-only in MCP v1.",
    "source": "update-store-DQkZxaRI.js",
    "confidence": "VERIFIED-from-JS"
   },

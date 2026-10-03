@@ -8,13 +8,34 @@ REDACTED = "<redacted>"
 TRUNCATED = "<truncated: max depth>"
 MAX_DEPTH = 64
 
-_EXACT_KEYS = frozenset({"ciphertext", "key", "stok", "passwd", "pwd", "token", "secret"})
-_PREFIXES = ("password",)
+# Rule-based so a new credential spelling is caught without editing a hand-list.
+# A key is sensitive if its lower-cased name is an exact match, OR contains one of
+# the substrings, OR ends with one of the suffixes.
+_EXACT_KEYS = frozenset(
+    {
+        "ciphertext",
+        "stok",
+        "token",
+        "nonce",
+        "cookie",
+        "secret",
+        "authorization",
+        "pubkey",
+        "key",
+        "sysauth",
+    }
+)
+_CONTAINS = ("pass", "pwd", "secret", "token", "cipher")
+_ENDSWITH = ("_key",)
 
 
 def is_sensitive_key(key: object) -> bool:
     name = str(key).lower()
-    return name in _EXACT_KEYS or name.startswith(_PREFIXES)
+    if name in _EXACT_KEYS:
+        return True
+    if any(fragment in name for fragment in _CONTAINS):
+        return True
+    return name.endswith(_ENDSWITH)
 
 
 def redact(value: Any, *, _depth: int = 0) -> Any:

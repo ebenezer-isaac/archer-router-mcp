@@ -7,6 +7,7 @@ matches are masked in every log line, including httpx's own request lines.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 from typing import Any
@@ -19,6 +20,73 @@ log = logging.getLogger(__name__)
 
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 _MASKS: list[tuple[re.Pattern[str], str]] = []
+_FINGERPRINT_RE = re.compile(r"\A[0-9a-f]{64}\Z")
+
+
+def normalize_fingerprint(value: str) -> str:
+    """Normalise a SHA-256 certificate fingerprint to 64 lower-case hex chars.
+
+    Accepts the common operator spellings (colon-separated, spaced, mixed case);
+    rejects anything that is not exactly 32 bytes of hex so a truncated or
+    mistyped pin can never silently disable pinning.
+    """
+    if not isinstance(value, str):
+        raise ValueError("TLS fingerprint must be a string")
+    cleaned = value.replace(":", "").replace(" ", "").strip().lower()
+    if not _FINGERPRINT_RE.match(cleaned):
+        raise ValueError("TLS fingerprint must be a SHA-256 hex digest (64 hex characters)")
+    return cleaned
+
+
+def fingerprint_sha256(cert_der: bytes) -> str:
+    """SHA-256 of a DER-encoded certificate, as 64 lower-case hex characters."""
+    return hashlib.sha256(cert_der).hexdigest()
+
+
+def verify_fingerprint_pin(expected: str, observed: str | None) -> None:
+    """Fail closed unless ``observed`` matches the pinned ``expected`` fingerprint.
+
+    A missing observation (``None``) is treated as a mismatch: if a pin is
+    configured the connection must be proven, never assumed.
+    """
+    if observed is None:
+        raise TransportError(
+            "TLS certificate fingerprint could not be observed; refusing to connect to a "
+            "pinned host."
+        )
+    if normalize_fingerprint(observed) != normalize_fingerprint(expected):
+        raise TransportError(
+            "TLS certificate fingerprint does not match the pinned value; refusing to connect."
+        )
+
+
+async def observe_peer_fingerprint(  # pragma: no cover - live TLS handshake only
+    host: str, port: int, *, timeout: float = 10.0
+) -> str:
+    """Open a TLS connection and return the peer certificate's SHA-256 fingerprint.
+
+    Verification is disabled for this probe: its only job is to read the cert the
+    server actually presents so an operator can pin it (or so a configured pin can
+    be checked). Never used to decide trust on its own.
+    """
+    import asyncio
+    import contextlib
+    import ssl
+
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    _, writer = await asyncio.wait_for(asyncio.open_connection(host, port, ssl=context), timeout)
+    try:
+        ssl_object = writer.get_extra_info("ssl_object")
+        der = ssl_object.getpeercert(binary_form=True)
+    finally:
+        writer.close()
+        with contextlib.suppress(OSError, ssl.SSLError):
+            await writer.wait_closed()
+    if not der:
+        raise TransportError("The server presented no TLS certificate")
+    return fingerprint_sha256(der)
 
 
 def register_token_mask(pattern: str, replacement: str) -> None:

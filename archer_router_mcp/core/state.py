@@ -189,28 +189,41 @@ class AtomicStateFile(Generic[M]):
 
 
 class Reservation:
-    """A committed, on-disk increment awaiting its outcome.
+    """A committed, on-disk reservation awaiting its outcome.
 
     ``release`` applies the outcome under the lock exactly once (repeat calls are
     no-ops). As a context manager an unresolved exit records a **failure** (fail
     closed), so only an explicit ``release(SUCCESS)`` ever counts as a success and a
     crash between reserve and release leaves the reservation counting against the
     budget until it is cleared.
+
+    The resolver returns whether the release was **stale** - a reservation whose slot
+    no longer exists (e.g. the store was cleared after it was taken). A stale release
+    is a logged no-op that never touches a current holder; ``release`` surfaces it as
+    its return value and on :attr:`stale`.
     """
 
-    def __init__(self, resolver: Callable[[Outcome, dict[str, Any]], None]) -> None:
+    def __init__(self, resolver: Callable[[Outcome, dict[str, Any]], bool]) -> None:
         self._resolver = resolver
         self._resolved = False
+        self._stale = False
 
     @property
     def resolved(self) -> bool:
         return self._resolved
 
-    def release(self, outcome: Outcome, **kwargs: Any) -> None:
+    @property
+    def stale(self) -> bool:
+        """True once a stale (slot-no-longer-present) release has been applied."""
+        return self._stale
+
+    def release(self, outcome: Outcome, **kwargs: Any) -> bool:
+        """Apply ``outcome`` once; return True if it was a stale no-op."""
         if self._resolved:
-            return
+            return self._stale
         self._resolved = True
-        self._resolver(outcome, kwargs)
+        self._stale = bool(self._resolver(outcome, kwargs))
+        return self._stale
 
     def __enter__(self) -> Reservation:
         return self
@@ -314,10 +327,11 @@ class ReservationStore:
             committed = admit(ledger)
             self._file.write(committed)
 
-        def _resolver(outcome: Outcome, kwargs: dict[str, Any]) -> None:
+        def _resolver(outcome: Outcome, kwargs: dict[str, Any]) -> bool:
             with self._locked():
                 current = self._file.read() or self._make_default()
                 self._file.write(resolve(current, outcome, kwargs))
+            return False
 
         return Reservation(_resolver)
 
@@ -327,6 +341,16 @@ class ReservationStore:
             updated = fn(self._file.read())
             self._file.write(updated)
             return updated
+
+    def set(self, model: M) -> None:
+        """Overwrite the ledger under the lock WITHOUT reading it first.
+
+        Recovery paths (e.g. ``breaker --clear``) use this so they succeed even when
+        the current file is corrupt or of an unknown shape - a read-modify-write would
+        refuse on such a file (fail closed), but a reset must always be able to
+        replace it with a clean, current-schema ledger."""
+        with self._locked():
+            self._file.write(model)
 
     def clear(self) -> None:
         """Remove the ledger under the lock. The lock file itself is kept."""

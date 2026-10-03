@@ -94,10 +94,7 @@ select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF"]
 ignore = []
 
 [tool.ruff.lint.isort]
-# ``vigi_nvr_mcp`` is the canonical package name the verbatim conformance suite
-# imports (aliased to this repo's core by the test-only shim package); treat it as
-# first-party so the byte-identical file's import grouping passes ruff here too.
-known-first-party = ["archer_router_mcp", "vigi_nvr_mcp"]
+known-first-party = ["archer_router_mcp"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S105", "S106", "S108", "S324", "S311", "S505"]

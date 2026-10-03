@@ -10,6 +10,15 @@ ledger is strictly schema-validated, so a wrongly-typed field is refused, never
 coerced to a permissive value. The device identity is derived once by
 :func:`canonical_device_key`, so one device never holds two budgets.
 
+Each reservation owns a **named slot**: the ledger tracks live reservations by a
+unique id (``reservations: id -> reserved_at``) and the reserved count is *derived*
+(``len``), never an independent counter. A reservation also remembers the ledger
+``epoch`` it was taken under; :meth:`LoginBreaker.clear` bumps the epoch. A
+``release`` whose epoch is no longer current, or whose id is no longer present (it
+was cleared), is a logged no-op that reports ``stale=True`` and NEVER decrements the
+slot of a current holder - so a release in flight across a ``breaker --clear`` can no
+longer free a slot that another attempt is still using (over-budget admission).
+
 Semantics (device-agnostic; no device vocabulary lives here):
 
 * ``reserve_attempt()`` reserves one attempt before any network I/O and returns a
@@ -30,13 +39,15 @@ from __future__ import annotations
 
 import ipaddress
 import logging
+import math
 import re
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
+from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .errors import BreakerOpen, Cooldown, LoginDisabled, StateUnavailable
 from .state import Outcome, Reservation, ReservationStore
@@ -47,6 +58,9 @@ SCHEMA_VERSION = 1
 # Upper bound on any cooldown, so a bogus/absurd future value can never make the
 # breaker unrecoverable by time alone (and ``clear`` always recovers it anyway).
 MAX_COOLDOWN_S = 7200.0
+# A legacy ``reserved`` count above this is treated as corrupt rather than migrated,
+# so a hand-edited huge value cannot make the migration allocate an enormous dict.
+_MAX_LEGACY_RESERVED = 10_000
 
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -77,19 +91,66 @@ def default_state_dir(app_name: str) -> Path:
 
 
 class BreakerLedger(BaseModel):
-    """The one authoritative, strictly-typed shape of the breaker's fact."""
+    """The one authoritative, strictly-typed shape of the breaker's fact.
+
+    ``reservations`` maps each live reservation's unique id to the wall-clock time it
+    was reserved; the reserved count is DERIVED from it (``len``), never an
+    independent counter, so a ``release`` can only ever free the one slot it owns.
+    ``epoch`` is bumped by :meth:`LoginBreaker.clear`, which is how a reservation taken
+    before a clear is recognised as stale afterwards.
+    """
 
     model_config = ConfigDict(strict=True, extra="forbid")
 
     version: Literal[1] = SCHEMA_VERSION
     key: str
-    reserved: int = Field(ge=0)
+    epoch: int = Field(default=0, ge=0)
+    reservations: dict[str, Annotated[float, Field(allow_inf_nan=False)]] = Field(
+        default_factory=dict
+    )
     failures: int = Field(ge=0)
     successes: int = Field(ge=0)
     tripped: bool
     cooldown_until: float | None
     last_failure: dict[str, Any] | None
-    last_update: float
+    last_update: float = Field(allow_inf_nan=False)
+
+    @property
+    def reserved(self) -> int:
+        """The live reservation count, derived from ``reservations`` (never stored)."""
+        return len(self.reservations)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_reserved(cls, data: Any) -> Any:
+        """Load a v1.1.0 ledger (an anonymous ``reserved`` int, no ``reservations``).
+
+        A valid non-negative ``reserved`` migrates to that many placeholder
+        reservations so a holder that crashed before the upgrade still counts against
+        the budget (fail closed). A bad-typed, negative or absurd value is left in
+        place so the strict schema rejects it (``extra``/range) rather than silently
+        reading as an empty, permissive budget."""
+        if not isinstance(data, dict) or "reservations" in data or "reserved" not in data:
+            return data
+        count = data["reserved"]
+        if isinstance(count, bool) or not isinstance(count, int):
+            return data
+        if not 0 <= count <= _MAX_LEGACY_RESERVED:
+            return data
+        migrated = {k: v for k, v in data.items() if k != "reserved"}
+        migrated["reservations"] = {f"legacy-{i}": 0.0 for i in range(count)}
+        return migrated
+
+    @field_validator("cooldown_until")
+    @classmethod
+    def _finite_cooldown(cls, value: float | None) -> float | None:
+        """Treat a non-finite cooldown (hand-edited ``Infinity``/``NaN``) as no
+        cooldown, so the breaker self-heals instead of refusing logins forever - the
+        writer itself can never emit one (``_cooldown_epoch`` clamps to a finite
+        number), so a non-finite value is only ever an external edit."""
+        if value is None or not math.isfinite(value):
+            return None
+        return value
 
 
 class LoginBreaker:
@@ -130,7 +191,8 @@ class LoginBreaker:
     def _fresh(self) -> BreakerLedger:
         return BreakerLedger(
             key=self._key,
-            reserved=0,
+            epoch=0,
+            reservations={},
             failures=0,
             successes=0,
             tripped=False,
@@ -140,13 +202,26 @@ class LoginBreaker:
         )
 
     def _cooldown_remaining(self, ledger: BreakerLedger) -> float:
-        if ledger.cooldown_until is None:
+        """Seconds of cooldown left, clamped to ``[0, MAX_COOLDOWN_S]``.
+
+        Total over every input: a ``None`` or non-finite ``cooldown_until``, and a
+        non-finite difference from a jumpy clock, all read as ``0`` (expired), so the
+        clamp never assumes a finite operand and a bogus value cannot stick."""
+        cu = ledger.cooldown_until
+        if cu is None or not math.isfinite(cu):
             return 0.0
-        return max(0.0, min(MAX_COOLDOWN_S, ledger.cooldown_until - float(self._clock())))
+        delta = cu - float(self._clock())
+        if not math.isfinite(delta):
+            return 0.0
+        return max(0.0, min(MAX_COOLDOWN_S, delta))
+
+    def _cooldown_epoch(self, cooldown_s: float) -> float:
+        return float(self._clock()) + max(0.0, min(MAX_COOLDOWN_S, float(cooldown_s)))
 
     # ---- admit / resolve policy (run under the store lock) ------------------
 
     def _admit(self, current: BreakerLedger | None) -> BreakerLedger:
+        """Policy gate only; the caller adds the named reservation under the lock."""
         ledger = current or self._fresh()
         if ledger.tripped:
             raise BreakerOpen(
@@ -162,21 +237,18 @@ class LoginBreaker:
                 "Wait for it to expire or clear the breaker.",
                 cooldown_remaining_s=remaining,
             )
-        if ledger.reserved + ledger.failures >= self._max_failures:
+        if len(ledger.reservations) + ledger.failures >= self._max_failures:
             raise BreakerOpen(
-                f"Login refused: the login budget is spent ({ledger.reserved} in flight + "
-                f"{ledger.failures} failed, budget {self._max_failures}). It persists across "
+                f"Login refused: the login budget is spent ({len(ledger.reservations)} in flight "
+                f"+ {ledger.failures} failed, budget {self._max_failures}). It persists across "
                 "restarts; clear it with the `breaker --clear` command after fixing the cause."
             )
-        return ledger.model_copy(
-            update={"reserved": ledger.reserved + 1, "last_update": float(self._clock())}
-        )
+        return ledger
 
-    def _resolve(
-        self, current: BreakerLedger | None, outcome: Outcome, kwargs: dict[str, Any]
+    def _apply_outcome(
+        self, ledger: BreakerLedger, res_id: str, outcome: Outcome, kwargs: dict[str, Any]
     ) -> BreakerLedger:
-        ledger = current or self._fresh()
-        reserved = max(0, ledger.reserved - 1)
+        reservations = {rid: ts for rid, ts in ledger.reservations.items() if rid != res_id}
         failures = ledger.failures
         successes = ledger.successes
         tripped = ledger.tripped
@@ -199,11 +271,11 @@ class LoginBreaker:
             # Soft busy / device-side timeout: a cooldown, not a budget failure.
             if cooldown_s is not None:
                 cooldown_until = self._cooldown_epoch(cooldown_s)
-        # Outcome.ABORT: the attempt never reached the device; decrement reserved only.
+        # Outcome.ABORT: the attempt never reached the device; drop the slot only.
 
         return ledger.model_copy(
             update={
-                "reserved": reserved,
+                "reservations": reservations,
                 "failures": failures,
                 "successes": successes,
                 "tripped": tripped,
@@ -213,13 +285,10 @@ class LoginBreaker:
             }
         )
 
-    def _cooldown_epoch(self, cooldown_s: float) -> float:
-        return float(self._clock()) + max(0.0, min(MAX_COOLDOWN_S, float(cooldown_s)))
-
     # ---- public API ---------------------------------------------------------
 
     def reserve_attempt(self) -> Reservation:
-        """Reserve one login attempt before any network I/O (the admission).
+        """Reserve one named login attempt before any network I/O (the admission).
 
         Raises :class:`LoginDisabled` (frozen by config), :class:`BreakerOpen`
         (tripped, budget spent, or the store is unusable) or :class:`Cooldown`
@@ -228,37 +297,73 @@ class LoginBreaker:
         if self._login_disabled:
             hint = f" ({self._disabled_hint})" if self._disabled_hint else ""
             raise LoginDisabled(f"Login refused: authentication is frozen{hint}.")
+        res_id = uuid4().hex
+        captured: dict[str, int] = {}
+
+        def admit(current: BreakerLedger | None) -> BreakerLedger:
+            ledger = self._admit(current)
+            captured["epoch"] = ledger.epoch
+            reservations = {**ledger.reservations, res_id: float(self._clock())}
+            return ledger.model_copy(
+                update={"reservations": reservations, "last_update": float(self._clock())}
+            )
+
         try:
-            self._store.mutate(self._admit)
+            self._store.mutate(admit)
         except StateUnavailable as exc:
             raise BreakerOpen(
                 f"Login refused: the breaker store is unusable, so the budget cannot be "
                 f"proven. {exc} Refusing logins (fail closed)."
             ) from exc
-        return Reservation(self._resolver)
+        epoch = captured["epoch"]
+        return Reservation(lambda outcome, kwargs: self._release(res_id, epoch, outcome, kwargs))
 
-    def _resolver(self, outcome: Outcome, kwargs: dict[str, Any]) -> None:
+    def _release(self, res_id: str, epoch: int, outcome: Outcome, kwargs: dict[str, Any]) -> bool:
+        """Apply an outcome to the slot ``res_id`` owns. A release whose epoch is no
+        longer current, or whose slot is gone (cleared), is a logged no-op that
+        returns ``True`` (stale) and never touches a current holder's slot."""
+        stale = False
+
         def apply(current: BreakerLedger | None) -> BreakerLedger:
-            return self._resolve(current, outcome, kwargs)
+            nonlocal stale
+            ledger = current or self._fresh()
+            if ledger.epoch != epoch or res_id not in ledger.reservations:
+                stale = True
+                return ledger
+            return self._apply_outcome(ledger, res_id, outcome, kwargs)
 
         try:
             self._store.mutate(apply)
         except StateUnavailable:
-            # The reserved increment is already on disk, so further logins are
-            # refused (fail closed); do not turn a resolved attempt into an error.
+            # The reserved slot is already on disk, so further logins are refused
+            # (fail closed); do not turn a resolved attempt into an error.
             log.warning(
                 "breaker: could not record a reservation outcome; the reserved attempt "
                 "stays on disk and further logins are refused until the store is writable"
             )
+            return False
+        if stale:
+            log.warning(
+                "breaker: ignoring a stale reservation release - its epoch/id is no longer "
+                "current (e.g. the breaker was cleared while a login was in flight); the "
+                "current budget is left untouched (fail safe)"
+            )
+        return stale
 
     def status(self) -> dict[str, Any]:
         """A non-secret snapshot for ``--show``/healthcheck. Never raises."""
         try:
             ledger = self._store.load() or self._fresh()
         except StateUnavailable as exc:
-            return {"state": "open", "reason": str(exc), "path": str(self.path)}
+            return {
+                "state": "open",
+                "reason": str(exc),
+                "cooldown_remaining_s": 0.0,
+                "path": str(self.path),
+            }
         remaining = self._cooldown_remaining(ledger)
-        spent = ledger.reserved + ledger.failures >= self._max_failures
+        reserved = len(ledger.reservations)
+        spent = reserved + ledger.failures >= self._max_failures
         if self._login_disabled:
             state = "disabled"
         elif ledger.tripped or spent:
@@ -267,9 +372,13 @@ class LoginBreaker:
             state = "cooldown"
         else:
             state = "closed"
+        now = float(self._clock())
+        ages = {rid: round(max(0.0, now - ts), 3) for rid, ts in ledger.reservations.items()}
         return {
             "state": state,
-            "reserved": ledger.reserved,
+            "reserved": reserved,
+            "reservations": ages,
+            "epoch": ledger.epoch,
             "failures": ledger.failures,
             "successes": ledger.successes,
             "tripped": ledger.tripped,
@@ -281,9 +390,21 @@ class LoginBreaker:
         }
 
     def clear(self) -> None:
-        """Reset the breaker (``breaker --clear``). Fail closed on store error."""
+        """Reset the breaker (``breaker --clear``) and INVALIDATE any outstanding
+        reservations by bumping the epoch, so a release still in flight from before the
+        clear cannot decrement the new budget (fail safe). Always recovers, even from a
+        corrupt ledger (the reset is written without reading the old file). Fail closed
+        on a store that cannot be written at all."""
         try:
-            self._store.clear()
+            current = self._store.load()
+            previous_epoch = current.epoch if current else 0
+        except StateUnavailable:
+            # Corrupt/unreadable: reset the epoch; the id-absence check still
+            # invalidates any outstanding handle, whose slot is gone after the reset.
+            previous_epoch = 0
+        fresh = self._fresh().model_copy(update={"epoch": previous_epoch + 1})
+        try:
+            self._store.set(fresh)
         except StateUnavailable as exc:
             raise BreakerOpen(f"Could not clear the breaker: {exc}") from exc
 

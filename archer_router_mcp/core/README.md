@@ -25,3 +25,30 @@ Dependencies: `httpx`, `pydantic` v2. Python 3.11+.
 
 When copying: keep the tests that cover these modules, and change nothing here
 that would require knowing which device is on the other end.
+
+## Conformance suite
+
+`tests/conformance/test_breaker_contract.py` is copied verbatim into every repo and
+hashed by `core/VERSION`, so it must not name any one package. Each repo's
+`tests/conftest.py` provides a one-line fixture returning its core package:
+
+```python
+@pytest.fixture
+def core_pkg():
+    import archer_router_mcp.core as core  # this repo's core package
+
+    return core
+```
+
+The suite resolves `breaker` / `errors` / `state` from `core_pkg`, and its spawned
+multiprocess workers import the same package by the path passed through their args
+(`core_pkg.__name__`), never a global.
+
+## Changelog
+
+- **1.2.0** — breaker reservations are named slots (`reservations: id -> reserved_at`,
+  reserved count derived) with a `clear()`-bumped `epoch`, so a release in flight across
+  a `breaker --clear` is a logged stale no-op and can never over-admit (x1c F1); state
+  float fields reject non-finite values and the cooldown clamp is total, so a hand-edited
+  `Infinity`/`NaN` cooldown self-heals instead of sticking (x1c F2); conformance suite made
+  package-agnostic via the `core_pkg` fixture, with the two POSIX lock/fork cases added.

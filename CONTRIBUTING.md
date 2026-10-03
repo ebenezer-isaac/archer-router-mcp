@@ -82,25 +82,14 @@ Device-specific code (the Archer protocol, error table, tool names, env prefix)
 lives **outside** `core/` — in `archer_router_mcp/` proper. That is where fixes
 and features belong.
 
-## The `vigi_nvr_mcp/` shim at the repo root
+## The conformance suite is package-agnostic
 
-There is a tiny `vigi_nvr_mcp/__init__.py` at the repo root. It is **test-only
-infrastructure**, not a dependency and not shipped:
-
-- The breaker **conformance suite** (`tests/conformance/test_breaker_contract.py`)
-  is copied verbatim from the canonical repo and hashed by the identity test, so
-  its imports must read `vigi_nvr_mcp.core.*` byte-for-byte in every repo.
-- The shim aliases that canonical namespace onto **this** repo's
-  `archer_router_mcp.core` (reusing the exact module objects), so the verbatim
-  suite runs here unchanged — including inside spawned `multiprocessing` workers,
-  which is why it sits on the import path at the repo root rather than under
-  `tests/`.
-- It is **excluded from the published package**: the wheel and sdist contain only
-  `archer_router_mcp` (verified — `pyproject.toml` `[tool.hatch.build.targets.wheel]`
-  packages just that one). Do not add it to the package build.
-
-Leave it where it is; moving it risks breaking the conformance suite's spawned
-workers.
+The breaker **conformance suite** (`tests/conformance/test_breaker_contract.py`) is
+copied verbatim from the canonical repo and hashed by the identity test, so it names
+no package. It resolves `breaker`/`errors`/`state` from the one-line `core_pkg`
+fixture in `tests/conftest.py` (which returns this repo's `archer_router_mcp.core`),
+and its spawned `multiprocessing` workers import the same package by the path passed
+through their arguments. No namespace shim is needed.
 
 ## License
 

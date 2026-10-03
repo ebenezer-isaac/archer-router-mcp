@@ -19,7 +19,7 @@ import json
 import sys
 from pathlib import Path
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGE_DIR = ROOT / "archer_router_mcp"
 CORE_DIR = PACKAGE_DIR / "core"

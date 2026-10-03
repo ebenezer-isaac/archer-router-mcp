@@ -1,0 +1,74 @@
+# archer-router-mcp systemd unit (example) — non-root, loopback-only, hardened.
+#
+# Install:
+#   sudo cp deploy/archer-router-mcp.service.example /etc/systemd/system/archer-router-mcp.service
+#   sudoedit /etc/systemd/system/archer-router-mcp.service      # set the venv path if different
+#   sudo install -m 0600 /dev/null /etc/archer-router-mcp.env   # then edit it (see deploy/install.md)
+#   sudo systemctl daemon-reload && sudo systemctl enable --now archer-router-mcp
+#
+# See deploy/install.md for the full procedure (including the R0 capture).
+
+[Unit]
+Description=archer-router-mcp (MCP server for the TP-Link Archer AX53)
+Documentation=https://github.com/ebenezer-isaac/archer-router-mcp
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# Secrets live only here, never in the unit or the repo. Create it mode 0600:
+#   ARCHER_ROUTER_HOST=<router-ip>
+#   ARCHER_ROUTER_PASSWORD=<your-router-password>
+#   ARCHER_ROUTER_TLS_FINGERPRINT_SHA256=<fingerprint>
+#   ARCHER_MCP_TRANSPORT=streamable-http
+#   ARCHER_MCP_HOST=127.0.0.1
+#   ARCHER_MCP_PORT=8770
+#   ARCHER_ROUTER_STATE_DIR=/var/lib/archer-router-mcp
+EnvironmentFile=/etc/archer-router-mcp.env
+
+# Adjust to wherever you installed the console script (a venv or pipx path):
+ExecStart=/opt/archer-router-mcp/.venv/bin/archer-router-mcp serve
+
+# Run as an ephemeral, unprivileged user; persist breaker/presence state under
+# /var/lib/archer-router-mcp (created and owned automatically, mode 0700).
+DynamicUser=yes
+StateDirectory=archer-router-mcp
+StateDirectoryMode=0700
+
+Restart=on-failure
+RestartSec=5
+
+# --- Sandboxing / hardening -------------------------------------------------
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectClock=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RemoveIPC=yes
+# Loopback MCP + outbound HTTPS to the router only:
+RestrictAddressFamilies=AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+# Add the router's address so outbound admin calls are allowed, e.g.:
+# IPAddressAllow=192.0.2.1
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -1,6 +1,6 @@
 # 03 — Archer AX53 backend (`archer-router-mcp`, standalone repo)
 
-Target: TP-Link Archer AX53 v1 (AX3000), UI build `AX53v1_1.11.0_2026-01-05`, certification profile `["US FCC","SG CLS L1 STAGE2"]` (the SG hardened variant). Owner-confirmed architecture: a **standalone repo**, not a consolidated server.
+Target: TP-Link Archer AX53 v1 (AX3000), UI build `AX53v1_1.11.0_2026-01-05`, certification profile `["US FCC","SG CLS L1 STAGE2"]` (the SG hardened variant). Maintainer-confirmed architecture: a **standalone repo**, not a consolidated server.
 
 - Repo: `E:/projects-working-dir/archer-router-mcp`. Package `archer_router_mcp`. Console script `archer-router-mcp`. MIT, public. Python 3.11+, `mcp` (FastMCP), `httpx`, `cryptography`, `pydantic` v2, `python-dotenv`; dev: `pytest`, `pytest-cov`, `respx`, `ruff`.
 - Env prefix `ARCHER_ROUTER_*`: `HOST`, `PORT`, `PASSWORD`, `VERIFY_TLS`, `TLS_FINGERPRINT_SHA256`, `ALLOW_WRITES`, `LOGIN_DISABLED`, `DRY_RUN`, `FORCE_SESSION_TAKEOVER` (default `false`), `STATE_DIR`.
@@ -29,13 +29,13 @@ Inputs available to agents (scratchpad `router/discovery/`, orchestrator copies 
 - Client verbs → body: `read`=`operation=read`; `load`=`operation=load`; `write`=`operation=write&…`; `insert`=`operation=insert&new=<JSON>&index=0`; `remove`=`operation=remove&key&index`; `update`=`operation=update&key&new=<JSON>&old=<JSON>`.
 - **Errors/lockout**: wrong password → `errorCode:"login failed"` with `data.failureCount`/`data.attemptsAllowed`; threshold ≈ 5 (init) / 7 (local); over threshold → `"exceeded max attempts"`, **locked 2 hours**. `"user conflict"` → another admin logged in; resending `confirm:true` **evicts** them. `"multiple login"` → policy refusal. `"timeout"` → decrypt failure or expired token.
 
-## Phase R0 — LIVE envelope capture (orchestrator-run, owner present)
+## Phase R0 — LIVE envelope capture (orchestrator-run, maintainer present)
 
-**Purpose**: confirm which wire envelope the router actually accepts, before any code depends on it. This is the one phase that touches the device; one login only; owner logged out of the web UI.
+**Purpose**: confirm which wire envelope the router actually accepts, before any code depends on it. This is the one phase that touches the device; one login only; maintainer logged out of the web UI.
 
 **Deliverables** (a dev-only utility, isolated, never imported by the package)
 - `tools/capture-login/` with its own `package.json` (headless-Chrome one-shot) AND a pure-`httpx` probe script `tools/capture-login/probe.py` that does NOT use a browser.
-- Capture plan, run by the orchestrator with the owner present and the owner logged out:
+- Capture plan, run by the orchestrator with the maintainer present and the maintainer logged out:
   1. `GET`/`POST …/device_config?form=config` over **HTTP** and over **HTTPS** → record `certification` and that both transports answer pre-login.
   2. `login?form=keys` and `login?form=auth` over each transport → record modulus bit-length, `e`, `seq` shape (values redacted).
   3. **One** full login over **HTTPS** sending the plain (skip-encrypt) body `password=<pw_rsa>&operation=login&confirm=false` with **no `sign`** → does the router return a `stok` + `sysauth` cookie? (Answers the skip-encrypt question.) If it refuses, immediately fall back to the HTTP AES+sign envelope for the same single login.
@@ -120,14 +120,14 @@ All double-gated (`ARCHER_ROUTER_ALLOW_WRITES=true` env **and** `confirm_write=T
 
 **Done when** gate passes; every write refuses correctly under each gate and under DRY_RUN sends nothing; `--list-tools` lists all R3+R4 tools.
 
-## Phase R5 — LIVE test (orchestrator-run, owner present)
+## Phase R5 — LIVE test (orchestrator-run, maintainer present)
 
 1. `archer-router-mcp check-auth --device router` → capabilities only (six flags).
 2. `archer-router-mcp check-auth --device router --login` → **one** login; expect a token (never printed) and `mode:router`.
 3. `router_get_status`, `router_list_clients`, `router_list_dhcp_reservations` → compare to the known LAN.
-4. `router_add_dhcp_reservation(mac=<EZVIZ wired MAC>, ip=<desired>, name=<label>)` in **DRY_RUN** first (review the exact body), then with `confirm_write=True` and `ALLOW_WRITES=true`.
+4. `router_add_dhcp_reservation(mac=<wired-camera MAC>, ip=<desired>, name=<label>)` in **DRY_RUN** first (review the exact body), then with `confirm_write=True` and `ALLOW_WRITES=true`.
 5. `router_list_dhcp_reservations` → verify the new row.
-6. `router_remove_dhcp_reservation(mac=<same>)` → verify removed (restore prior state), unless the owner wants to keep it.
+6. `router_remove_dhcp_reservation(mac=<same>)` → verify removed (restore prior state), unless the maintainer wants to keep it.
 7. `router_logout`. Record sanitised results in `docs/protocol/archer-ax53-verified.md`.
 
 Use `192.0.2.1` and placeholder MACs in all committed docs; real values stay in the private env file only.
@@ -141,10 +141,10 @@ R1 may begin from the JS/vectors before R0 lands (crypto is fully specified); R2
 
 **Licensing**: this is a clean-room **MIT** native port written from `archer-ax53-auth-flow.md` and `router-auth-vectors.json`. `tplinkrouterc6u` (`client/sg.py`, GPL-3.0) is a **cross-check reference only** — read to confirm behaviour, **never copied** (no code, no comments, no structure lifted). Record in `NOTICE` that no GPL code was incorporated.
 
-## Addendum (owner request 2026-10-03) — clients, presence history, blocking, limits
+## Addendum (maintainer request 2026-10-03) — clients, presence history, blocking, limits
 
 Verified from `router-endpoints.json` (local API, no cloud): client lists (`status?form=network_map`, `smart_network?form=game_accelerator` op `loadDevice`, `dhcps?form=client`, `easymesh_network?form=mesh_sclient_list_all`, `nat?form=client_list`), access control (`access_control?form=enable|mode|black_list|white_list|black_devices(block)|white_devices(access)`), per-client speed limit (`smart_network?form=client_speed_limit` ops `read_max`/`write`), IoT isolation (`iot_security?form=enable|isolated_list|isolated_devices_*`), Wi-Fi schedule (`wireless_schedule_v2?form=settings`), WoL (`wol?form=device`), LED (`ledgeneral`/`ledpm`). **Not in the local API**: website filtering / parental controls (HomeShield cloud), usage history, notifications to clients.
 
 Add to **R3 (reads)**: `router_list_clients(include_offline=False)` → normalised `{mac, ip, name, type, band, wired, signal, rx_mbps, tx_mbps, online, last_seen}` merged across the sources above; `router_client_history(since, mac=None)` → join/leave events from the MCP's own presence log; `router_get_access_control()`; `router_get_speed_limits()`; `router_get_wifi_schedule()`; `router_get_iot_isolation()`. The **presence log** is a small file-backed store under `ARCHER_ROUTER_STATE_DIR` (JSON lines, size-capped, pure merge logic tested) fed by an optional sampler `router_poll_presence()` (one read; designed to be called by a cron/`ARCHER_ROUTER_PRESENCE_INTERVAL_S` background task in the server when > 0) — no history is fabricated: `first_seen`/`last_seen` only ever come from samples.
-Add to **R4 (writes, double-gated + dry-run)**: `router_block_device(mac, confirm_write)`, `router_unblock_device(mac, confirm_write)`, `router_set_access_mode(mode: blacklist|whitelist|off, confirm_write)`, `router_set_client_speed_limit(mac, down_kbps, up_kbps, confirm_write)`, `router_set_wifi_schedule(...)`, `router_isolate_device(mac, isolate: bool, confirm_write)`, `router_wol(mac, confirm_write)`. Safety: `ARCHER_ROUTER_PROTECTED_MACS` (required when writes are on; the server's and the owner's own devices) — any block/limit/isolate on a protected MAC is refused; whitelist mode is refused unless the protected MACs are already on the white list (read-check first).
+Add to **R4 (writes, double-gated + dry-run)**: `router_block_device(mac, confirm_write)`, `router_unblock_device(mac, confirm_write)`, `router_set_access_mode(mode: blacklist|whitelist|off, confirm_write)`, `router_set_client_speed_limit(mac, down_kbps, up_kbps, confirm_write)`, `router_set_wifi_schedule(...)`, `router_isolate_device(mac, isolate: bool, confirm_write)`, `router_wol(mac, confirm_write)`. Safety: `ARCHER_ROUTER_PROTECTED_MACS` (required when writes are on; the server's and the maintainer's own devices) — any block/limit/isolate on a protected MAC is refused; whitelist mode is refused unless the protected MACs are already on the white list (read-check first).
 README recipe for the agent: "new device alert" (poll → diff → notify via the agent's own channel) and "block a device" (list → confirm MAC → block → verify). Note the HomeShield limitation and the DNS-filter alternative (AdGuard Home on the LAN host; the router's DHCP DNS setting is the only router-side change).

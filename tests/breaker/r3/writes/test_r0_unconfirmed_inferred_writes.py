@@ -25,7 +25,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from archer_router_mcp import server
-from archer_router_mcp.tools._write_common import wifi_write_confirmed
+from archer_router_mcp.tools._write_common import _confirmed_tools, wifi_write_confirmed
 from tests.fakes import FakeRouter, build_components
 
 DEV2 = "00:00:5E:00:53:02"
@@ -41,12 +41,13 @@ def _components(tmp_path: Path):
     return fake, comps
 
 
-def test_verified_doc_is_actually_missing() -> None:
-    """Sanity: the whole premise is that R0 has not landed. If this ever fails,
-    the other assertions here are moot (the doc exists, so writes are confirmed)."""
-    root = Path(server.__file__).resolve().parents[1]
-    doc = root / "docs" / "protocol" / "archer-ax53-verified.md"
-    assert not doc.exists(), "verified doc exists; R0 has landed and the premise is void"
+def test_verified_doc_confirms_nothing() -> None:
+    """Sanity: the whole premise is that R0 has not landed, i.e. no INFERRED write is
+    confirmed. The documented template at docs/protocol/archer-ax53-verified.md may
+    exist (it ships empty, with no tool rows), but it must confirm no tool and record
+    no Wi-Fi body. If this ever fails, the other assertions here are moot (a tool is
+    confirmed, so its write would be allowed)."""
+    assert _confirmed_tools() == frozenset(), "the verified doc confirms a tool; R0 has landed"
     assert wifi_write_confirmed() is False
 
 

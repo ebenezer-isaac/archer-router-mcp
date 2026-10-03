@@ -1,14 +1,14 @@
-# Master Plan — three standalone, browser-free MCP servers for the owner's TP-Link devices
+# Master Plan — three standalone, browser-free MCP servers for the maintainer's TP-Link devices
 
-**Decision (owner, 2026-10-03): three standalone repos, not one consolidated server.** Each is a complete MCP server; the device-agnostic `core/` directory is written once in `vigi-nvr-mcp` and **copied verbatim** into the other two (a shared package is extracted later only if it stays identical). Rationale: the three protocols share nothing, standalone repos let agents work with zero collisions, and public users install only the device they own.
+**Decision (maintainer, 2026-10-03): three standalone repos, not one consolidated server.** Each is a complete MCP server; the device-agnostic `core/` directory is written once in `vigi-nvr-mcp` and **copied verbatim** into the other two (a shared package is extracted later only if it stays identical). Rationale: the three protocols share nothing, standalone repos let agents work with zero collisions, and public users install only the device they own.
 
-| Repo / package / script | Hardware (owner's) | Protocol | Env prefix | Tool prefix | Spec |
+| Repo / package / script | Hardware | Protocol | Env prefix | Tool prefix | Spec |
 |---|---|---|---|---|---|
 | `vigi-nvr-mcp` / `vigi_nvr_mcp` / `vigi-nvr-mcp` | VIGI NVR1016H(UN), fw 1.1.3 Build 260727 | JSON-RPC `POST /stok=<t>/ds`, RSA-PKCS1v15(md5) login | `VIGI_NVR_*` | `nvr_` | `01-NVR-SPEC.md` |
 | `tplink-easysmart-mcp` / `tplink_easysmart_mcp` / `tplink-easysmart-mcp` | TL-SG1016PE Easy Smart PoE | HTML pages + `*.cgi` form posts, cleartext login | `EASYSMART_*` | `switch_` | `02-SWITCH-SPEC.md` |
 | `archer-router-mcp` / `archer_router_mcp` / `archer-router-mcp` | Archer AX53 v1 (AX3000), UI 1.11.0 | `/cgi-bin/luci/;stok=<t>/admin/<mod>?form=<f>`, SG hardened profile | `ARCHER_ROUTER_*` | `router_` | `03-ROUTER-SPEC.md` |
 
-Optional fourth backend, **parked**: a bridge-mode gateway/ONT (out of scope). Low value while it only relays; revisit after the three above. Hygiene item for the owner now: [redacted] — disable telnet in its admin UI if the firmware allows.
+Optional fourth backend, **parked**: a TP-Link GPON ONT running in bridge/AP mode (no DHCP, relay only), older `/cgi/login` UI. Low value while it only relays; revisit after the three above.
 
 The three protocols share **nothing** below the MCP layer. The copied `core/` is scaffolding only: config, envelope, redaction, write-gating, lockout breaker, serialised request queue, transport base, CLI helpers, test harness. **Never** build a "shared stok protocol" abstraction — it is false.
 
@@ -35,7 +35,7 @@ Every phase in the three specs is sized to fit one agent context. An agent assig
 - **Touch ≤ 14 files and add ≤ 1,500 LOC per phase.** If the work is bigger, stop and propose the split.
 - **Run the gate before every commit**: `python scripts/gate.py` = ruff + pytest (with coverage thresholds) + `check_no_secrets` + stub-grep + `<script> --list-tools` (must succeed and list every tool the spec names for the phases completed so far). Commit only on PASS. Conventional commits (`feat:`/`fix:`/`test:`/`docs:`/`refactor:`/`chore:`), each ending with `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
 - **Never push, never create a remote.** The orchestrator reviews and publishes.
-- **Never contact a real device** unless the phase explicitly says "LIVE" and gives the exact command; live phases are run by the orchestrator with the owner present.
+- **Never contact a real device** unless the phase explicitly says "LIVE" and gives the exact command; live phases are run by the orchestrator with the maintainer present.
 - **End with the Phase Report** (verbatim headings): `## Deliverables built` (file list), `## Tools registered` (paste `--list-tools` output), `## Gate output` (tail of `gate.py`), `## Tests` (count, coverage %), `## Deviations` (with reasons), `## Open questions`, `## Commits`.
 
 The orchestrator re-runs `scripts/gate.py` independently after every phase and spot-reads 2–3 files. A phase that fails the gate or has stubs is sent back with the gate output.
@@ -62,11 +62,11 @@ Tool naming: `nvr_*`, `switch_*`, `router_*`; each server exposes `<prefix>statu
 ```
 N1 core+auth ─► N2 catalog gateway ─► N3 typed read tools ─► N4 channels (needs channel-management.md) ─► N5 LIVE verify + ghost cleanup + re-home ─► N6 docs/deploy
                                    └──────────────────────────────────────────────┐
-S0 LIVE fixture capture (owner creds) ─► S1 parsers ─► S2 client ─► S3 tools ─► S4 LIVE poe_cycle test
-R0 LIVE envelope capture (owner creds) ─► R1 crypto ─► R2 auth+session ─► R3 read tools ─► R4 write tools ─► R5 LIVE reservation test
+S0 LIVE fixture capture (maintainer creds) ─► S1 parsers ─► S2 client ─► S3 tools ─► S4 LIVE poe_cycle test
+R0 LIVE envelope capture (maintainer creds) ─► R1 crypto ─► R2 auth+session ─► R3 read tools ─► R4 write tools ─► R5 LIVE reservation test
 ```
 - N1 is done (core exists). S1 and R1 may start immediately by copying `vigi-nvr-mcp/vigi_nvr_mcp/core/`; N2/N3/N4 run in parallel on `vigi-nvr-mcp` in separate git worktrees. Different repos never collide.
-- `S0` and `R0` are orchestrator-run live captures that need the owner's switch and router passwords and a window when the owner is logged out of those web UIs. Until then S1/R1 can proceed from the already-downloaded JS/pages only where the spec says so.
+- `S0` and `R0` are orchestrator-run live captures that need the maintainer's switch and router passwords and a window when the maintainer is logged out of those web UIs. Until then S1/R1 can proceed from the already-downloaded JS/pages only where the spec says so.
 - Each phase = one agent run. Maximise parallelism: one agent per phase wherever the graph allows; same-repo phases use `git worktree` branches that the orchestrator merges.
 
 ## 5. Verification the orchestrator runs
@@ -77,4 +77,4 @@ R0 LIVE envelope capture (owner creds) ─► R1 crypto ─► R2 auth+session �
 
 ## 6. Deployment target (private, not in repo)
 
-Three non-root systemd services on the owner's Ubuntu server, each with its own `EnvironmentFile=/etc/<repo-name>.env` (0600), streamable-HTTP on `127.0.0.1` on three ports, reachable only via Tailscale/SSH; three entries in the MCP client config. The switch backend must run there (cleartext login, wired LAN only). Real hostnames/IPs/ports live only in that env file and the owner's private notes.
+Three non-root systemd services on the maintainer's Ubuntu server, each with its own `EnvironmentFile=/etc/<repo-name>.env` (0600), streamable-HTTP on `127.0.0.1` on three ports, reachable only via Tailscale/SSH; three entries in the MCP client config. The switch backend must run there (cleartext login, wired LAN only). Real hostnames/IPs/ports live only in that env file and the maintainer's private notes.

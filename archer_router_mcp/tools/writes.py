@@ -14,8 +14,10 @@ from __future__ import annotations
 import ipaddress
 from typing import TYPE_CHECKING, Any
 
+from ..core.errors import InvalidInput
 from ..core.redact import is_sensitive_key
-from ..errors import PreconditionFailed, RateLimited
+from ..core.state import Outcome
+from ..errors import PreconditionFailed, WriteOutcomeUnknown
 from ..normalize import as_bool, as_int, decode_name, first_present, mac_dashed, normalize_mac
 from ._write_common import (
     IP_KEYS,
@@ -266,7 +268,7 @@ async def router_set_wifi(
     def prep() -> str:
         b = str(band).strip().lower()
         if b not in WIFI_BANDS:
-            raise ValueError("band must be one of: 2g, 5g")
+            raise InvalidInput("band must be one of: 2g, 5g")
         valid_bool(enabled, "enabled")
         return b
 
@@ -334,10 +336,15 @@ async def router_reboot(components: Components, *, confirm_write: bool = False) 
     """Reboot the router (``system?form=reboot``). MUTATES; disruptive.
 
     Rate-limited to one reboot per ``ARCHER_ROUTER_REBOOT_MIN_INTERVAL_S`` (default
-    900s) via a timestamp persisted under ``STATE_DIR`` that survives restarts. A call
-    inside the window returns ``RATE_LIMITED`` and sends nothing; DRY_RUN shows the
-    next allowed time. There is no post-reboot re-read (the device is going down).
-    Double-gated.
+    900s) via a :class:`~archer_router_mcp.ratelimit.RebootLimiter` over the shared
+    ``ReservationStore``: the attempt is **reserved under a cross-process lock before
+    the reboot is sent** (reserve-before-act), so a call inside the window — or an
+    unwritable ``STATE_DIR`` — is refused with ``RATE_LIMITED`` and sends nothing
+    (fail closed, never fail open). The reservation is released after the request:
+    on success (or a lost reply, where the reboot POST already left the process) the
+    cooldown window starts; if the reboot is refused before it is sent (e.g. a login
+    failure) the window is not consumed. There is no post-reboot re-read (the device
+    is going down). DRY_RUN shows the next allowed time. Double-gated.
     """
     limiter = components.reboot_rate_limiter
     request = plan("admin/system", "reboot", "reboot", {})
@@ -346,24 +353,27 @@ async def router_reboot(components: Components, *, confirm_write: bool = False) 
         return {"dry_run": request, "rate_limit": limiter.status(components.clock())}
 
     async def live(session: RouterSession) -> dict[str, Any]:
-        now = components.clock()
-        status = limiter.status(now)
-        if not status["allowed"]:
-            raise RateLimited(
-                "Reboot refused: another reboot is rate-limited. "
-                f"Try again in {status['retry_after_s']:.0f}s.",
-                retry_after_s=status["retry_after_s"],
-                next_allowed=status["next_allowed"],
+        # Reserve BEFORE any reboot leaves the process. Raises RateLimited (within the
+        # window, an in-flight reboot, or an unwritable store) with nothing sent.
+        res = limiter.reserve()
+        try:
+            # A reboot is one-shot and non-idempotent: never resend it on a lost reply.
+            ack = await session.request(
+                request["path"],
+                request["form"],
+                request["operation"],
+                request["params"],
+                idempotent=False,
             )
-        # A reboot is one-shot and non-idempotent: never resend it on a lost reply.
-        ack = await session.request(
-            request["path"],
-            request["form"],
-            request["operation"],
-            request["params"],
-            idempotent=False,
-        )
-        limiter.record(now)
-        return {"applied": request, "ack": ack, "rate_limit": limiter.status(now)}
+        except WriteOutcomeUnknown:
+            # The reboot POST left the process (reply lost): consume the window.
+            res.release(Outcome.SUCCESS)
+            raise
+        except BaseException:
+            # Refused before the reboot was sent (login/auth/device error): window intact.
+            res.release(Outcome.ABORT)
+            raise
+        res.release(Outcome.SUCCESS)
+        return {"applied": request, "ack": ack, "rate_limit": limiter.status(components.clock())}
 
     return await guarded(components, "router_reboot", confirm_write, dry, live)

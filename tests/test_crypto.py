@@ -154,7 +154,7 @@ def test_generated_2048_key_round_trips_both_schemes() -> None:
 @pytest.mark.parametrize(
     ("length", "expected_lens"),
     [
-        (0, [0]),
+        (0, []),
         (1, [1]),
         (52, [52]),
         (53, [53]),

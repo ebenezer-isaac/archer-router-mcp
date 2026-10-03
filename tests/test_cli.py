@@ -1,4 +1,4 @@
-"""CLI surface for Phase R1: only ``--list-tools`` is stable (the gate uses it)."""
+"""CLI surface: ``--list-tools`` (the gate uses it) and help/arg handling."""
 
 from __future__ import annotations
 
@@ -7,14 +7,19 @@ import pytest
 from archer_router_mcp import cli
 
 
-def test_list_tools_is_empty_in_r1() -> None:
-    assert cli.list_tools() == []
+def test_list_tools_lists_the_router_tools() -> None:
+    assert cli.list_tools() == [
+        "router_status",
+        "router_check_auth",
+        "router_login",
+        "router_logout",
+    ]
 
 
-def test_list_tools_flag_prints_nothing_and_exits_zero(capsys) -> None:
+def test_list_tools_flag_prints_tools_and_exits_zero(capsys) -> None:
     rc = cli.main(["--list-tools"])
     assert rc == 0
-    assert capsys.readouterr().out == ""
+    assert capsys.readouterr().out.split() == cli.list_tools()
 
 
 def test_no_args_prints_help_to_stderr_and_exits_zero(capsys) -> None:

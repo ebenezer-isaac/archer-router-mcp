@@ -46,8 +46,8 @@ def test_nested_dicts_and_lists() -> None:
     }
     assert redact(src) == {
         "band": [
-            # psk_key is not a redact-by-default key here; the device layer strips it.
-            {"wireless_2g": {"ip": "192.0.2.21", CT: REDACTED, "auth": {"psk_key": "x"}}},
+            # psk_key ends with _key, so the rule-based redactor strips it everywhere.
+            {"wireless_2g": {"ip": "192.0.2.21", CT: REDACTED, "auth": {"psk_key": REDACTED}}},
             {"wireless_5g": {"ip": "192.0.2.22", "user": "admin"}},
         ],
         "meta": [[{"stok": REDACTED}]],

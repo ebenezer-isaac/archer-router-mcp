@@ -9,6 +9,7 @@ and the rule, never the offending value (it may be a password).
 from __future__ import annotations
 
 import ipaddress
+import logging
 import os
 import re
 from collections.abc import Mapping
@@ -17,6 +18,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, field_validator
 
 from .errors import ConfigError
+from .transport import normalize_fingerprint
 
 DEVICE_ENV_SUFFIXES: dict[str, str] = {
     "HOST": "host",
@@ -24,17 +26,22 @@ DEVICE_ENV_SUFFIXES: dict[str, str] = {
     "USERNAME": "username",
     "PASSWORD": "password",
     "VERIFY_TLS": "verify_tls",
+    "TLS_FINGERPRINT_SHA256": "tls_fingerprint_sha256",
     "TIMEOUT_SECONDS": "timeout_seconds",
     "ALLOW_WRITES": "allow_writes",
     "LOGIN_DISABLED": "login_disabled",
     "MAX_LOGIN_FAILURES": "max_login_failures",
     "DRY_RUN": "dry_run",
     "BACKUP_DIR": "backup_dir",
+    "STATE_DIR": "state_dir",
+    "FORCE_SESSION_TAKEOVER": "force_session_takeover",
+    "ENVELOPE": "envelope",
 }
 GLOBAL_ENV_SUFFIXES: dict[str, str] = {
     "TRANSPORT": "mcp_transport",
     "HOST": "mcp_host",
     "PORT": "mcp_port",
+    "LOG_LEVEL": "mcp_log_level",
 }
 
 _HOST_LABEL = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
@@ -75,17 +82,48 @@ class DeviceSettings(BaseModel):
     username: str = "admin"
     password: SecretStr = Field(min_length=1, max_length=128)
     verify_tls: bool = False
+    tls_fingerprint_sha256: str | None = None
     timeout_seconds: float = Field(default=10.0, ge=1.0, le=120.0, allow_inf_nan=False)
     allow_writes: bool = False
     login_disabled: bool = False
     max_login_failures: int = Field(default=1, ge=1, le=5)
     dry_run: bool = False
     backup_dir: str = Field(default="backups", min_length=1, max_length=1024)
+    state_dir: str | None = None
+    force_session_takeover: bool = False
+    envelope: Literal["auto", "https-plain", "http-encrypted"] = "auto"
 
     @field_validator("host", mode="before")
     @classmethod
     def _validate_host(cls, value: object) -> str:
         return validate_host(value)
+
+    @field_validator("tls_fingerprint_sha256", mode="before")
+    @classmethod
+    def _validate_fingerprint(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("must be a string")
+        if not value.strip():
+            return None
+        return normalize_fingerprint(value)
+
+    @field_validator("state_dir", mode="before")
+    @classmethod
+    def _validate_state_dir(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("must be a string")
+        text = value.strip()
+        if not text:
+            return None
+        if _CONTROL_CHARS.search(text):
+            raise ValueError("must not contain control characters")
+        if len(text) > 1024:
+            raise ValueError("must be at most 1024 characters")
+        return text
 
     @field_validator("username")
     @classmethod
@@ -123,6 +161,7 @@ class GlobalSettings(BaseModel):
     mcp_transport: Literal["stdio", "streamable-http"] = "stdio"
     mcp_host: str = "127.0.0.1"
     mcp_port: Port = 8765
+    mcp_log_level: str = "INFO"
 
     @field_validator("mcp_host")
     @classmethod
@@ -132,6 +171,14 @@ class GlobalSettings(BaseModel):
         except ValueError as exc:
             raise ValueError("must be an IP address literal such as 127.0.0.1") from exc
         return value
+
+    @field_validator("mcp_log_level")
+    @classmethod
+    def _validate_level(cls, value: str) -> str:
+        level = value.strip().upper()
+        if level not in logging.getLevelNamesMapping():
+            raise ValueError("must be a logging level name such as INFO or DEBUG")
+        return level
 
     @property
     def mcp_host_is_loopback(self) -> bool:
@@ -153,9 +200,33 @@ def host_is_set(prefix: str, environ: Mapping[str, str] | None = None) -> bool:
     return bool(source.get(f"{prefix}HOST", "").strip())
 
 
+def _reject_unknown_keys(
+    prefix: str, source: Mapping[str, str], suffixes: Mapping[str, str]
+) -> None:
+    """Fail loudly on any ``<prefix>*`` variable that is not a recognised setting.
+
+    A silently dropped typo (``..._ALLOW_WRITE`` for ``..._ALLOW_WRITES``) is a
+    security hazard: the operator believes a safety switch is set when it is not.
+    Only names are listed, never values (they may be secrets).
+    """
+    known = set(suffixes)
+    unknown = sorted(
+        name for name in source if name.startswith(prefix) and name[len(prefix) :] not in known
+    )
+    if unknown:
+        raise ConfigError(
+            "Unknown environment variable(s): "
+            + ", ".join(unknown)
+            + ". Check for typos; remove or correct them."
+        )
+
+
 def load_device_settings(prefix: str, environ: Mapping[str, str] | None = None) -> DeviceSettings:
     """Build DeviceSettings from ``<prefix>*`` variables. Fails fast."""
+    if not _PREFIX.fullmatch(prefix):
+        raise ConfigError(f"invalid environment prefix {prefix!r}")
     source = os.environ if environ is None else environ
+    _reject_unknown_keys(prefix, source, DEVICE_ENV_SUFFIXES)
     raw: dict[str, object] = {
         field: source[prefix + suffix]
         for suffix, field in DEVICE_ENV_SUFFIXES.items()
@@ -169,10 +240,11 @@ def load_device_settings(prefix: str, environ: Mapping[str, str] | None = None) 
 
 
 def load_global_settings(prefix: str, environ: Mapping[str, str] | None = None) -> GlobalSettings:
-    """Build GlobalSettings from ``<prefix>TRANSPORT/HOST/PORT``. Fails fast."""
+    """Build GlobalSettings from ``<prefix>TRANSPORT/HOST/PORT/LOG_LEVEL``. Fails fast."""
     if not _PREFIX.fullmatch(prefix):
         raise ConfigError(f"invalid environment prefix {prefix!r}")
     source = os.environ if environ is None else environ
+    _reject_unknown_keys(prefix, source, GLOBAL_ENV_SUFFIXES)
     raw = {
         field: source[prefix + suffix]
         for suffix, field in GLOBAL_ENV_SUFFIXES.items()

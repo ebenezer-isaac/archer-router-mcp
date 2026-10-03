@@ -35,7 +35,8 @@ import hmac
 import json
 import random
 import re
-from dataclasses import dataclass
+from collections.abc import Iterable
+from dataclasses import dataclass, field
 from urllib.parse import quote
 
 from cryptography.exceptions import UnsupportedAlgorithm
@@ -52,6 +53,53 @@ _SHA1_LEN = 20  # OAEP label hash length, for the max-message-size guard
 _DIGITS = "0123456789"
 _AES_KEY_RE = re.compile(r"\A[0-9]{16}\Z")
 _HEX_RE = re.compile(r"\A[0-9A-Fa-f]+\Z")
+
+# The only certification string whose value is known from the bundle
+# (vt.SG_L1_S2); the bundle's authoritative isSupport() vectors confirm the six
+# SG flags turn on exactly when it is present, and every other certification set
+# tested (US-only, empty, RG, CE RED) leaves all flags off.
+SG_CLS_L1_STAGE2 = "SG CLS L1 STAGE2"
+FEATURE_MAP: dict[str, frozenset[str]] = {
+    "2_login_SHA256": frozenset({SG_CLS_L1_STAGE2}),
+    "3_login_failed": frozenset({SG_CLS_L1_STAGE2}),
+    "4_multiple_login": frozenset({SG_CLS_L1_STAGE2}),
+    "5_gdpr": frozenset({SG_CLS_L1_STAGE2}),
+    "12_replace_hash": frozenset({SG_CLS_L1_STAGE2}),
+    "13_rsa_pad_with_pkcs1_oaep": frozenset({SG_CLS_L1_STAGE2}),
+}
+
+
+def encode_js_utf8(text: str) -> bytes:
+    """Encode ``text`` the way jsbn's ``pkcs1pad2`` does: per UTF-16 code unit.
+
+    The router's web UI stored the password by walking the JS string with
+    ``charCodeAt`` and UTF-8-encoding each 16-bit code unit individually. For a
+    supplementary-plane character the JS string holds a surrogate pair, so each
+    half is emitted as its own 3-byte sequence (CESU-8): ``🔑`` -> ``ed a0 bd
+    ed b4 91``, not the 4-byte UTF-8 ``f0 9f 94 91``. A native client must
+    reproduce these bytes or the router decrypts a different password and the
+    login fails (burning a lockout attempt). ASCII and BMP input is byte-for-byte
+    identical to plain UTF-8.
+    """
+    raw = text.encode("utf-16-le")
+    out = bytearray()
+    for i in range(0, len(raw), 2):
+        code_unit = raw[i] | (raw[i + 1] << 8)
+        out += chr(code_unit).encode("utf-8", "surrogatepass")
+    return bytes(out)
+
+
+def is_support(flag: str, certification: Iterable[str]) -> bool:
+    """Reproduce the bundle's ``isSupport(flag)``: a flag is on when the device's
+    ``certification`` list contains one of the profile strings that enables it."""
+    certs = set(certification)
+    return bool(FEATURE_MAP.get(flag, frozenset()) & certs)
+
+
+def should_skip_encrypt(is_https: bool) -> bool:
+    """The bundle's ``shouldSkipEncrypt()``: over HTTPS the plain body is sent
+    (``isHttps() && isProduction()``); over HTTP the AES+sign envelope is used."""
+    return bool(is_https)
 
 
 # --------------------------------------------------------------------------- hashes
@@ -90,10 +138,13 @@ class AesKey:
     The digits are used directly as UTF-8 bytes (16 bytes -> AES-128), exactly as
     the router's ``CryptoJS.enc.Utf8.parse`` does. Wrong sizes are rejected so a
     malformed key can never silently become a different cipher.
+
+    ``key`` and ``iv`` are ``repr=False``: the live session key and IV must never
+    reach a log line, an exception message, ``repr()``/``str()`` or a locals dump.
     """
 
-    key: str
-    iv: str
+    key: str = field(repr=False)
+    iv: str = field(repr=False)
 
     def __post_init__(self) -> None:
         for name, value in (("key", self.key), ("iv", self.iv)):
@@ -189,7 +240,7 @@ def rsa_pkcs1v15_hex(n_hex: str, e_hex: str, plaintext: str) -> str:
     decrypting with the matching private key, not by matching bytes.
     """
     key = _load_public_key(n_hex, e_hex)
-    data = plaintext.encode("utf-8")
+    data = encode_js_utf8(plaintext)
     max_len = key.key_size // 8 - 11
     if len(data) > max_len:
         raise ValueError(f"plaintext too long for PKCS#1 v1.5 ({len(data)} > {max_len} bytes)")
@@ -222,11 +273,14 @@ def rsa_oaep_sha1_hex(n_hex: str, e_hex: str, plaintext: str) -> str:
 
 
 def chunk53(text: str) -> list[str]:
-    """Split ``text`` into consecutive substrings of at most ``SIGNATURE_OFFSET`` chars."""
+    """Split ``text`` into consecutive substrings of at most ``SIGNATURE_OFFSET`` chars.
+
+    An empty string yields no chunks (``[]``), matching the bundle's
+    ``for(n=0;n<len;n+=53)`` loop which never runs for an empty plaintext and so
+    produces an empty signature.
+    """
     if not isinstance(text, str):
         raise TypeError("text must be str")
-    if text == "":
-        return [""]
     return [text[i : i + SIGNATURE_OFFSET] for i in range(0, len(text), SIGNATURE_OFFSET)]
 
 
@@ -244,8 +298,12 @@ def sign_login(
     ``k=..&i=..&h=<pwHash>&s=<seq+len(data)>``, hex outputs concatenated.
 
     The ``h`` value is the password hash (login is ``withAesKey=true`` and does
-    not roll the request hash).
+    not roll the request hash). A falsy ``seq`` yields the empty string: the
+    bundle's ``encrypt()`` opens ``if(!this.sequence) return {}`` and emits no
+    signature (and no request) for a zero sequence.
     """
+    if not seq:
+        return ""
     s = _s_value(seq, data_b64)
     plaintext = f"{aes.formatted}&h={password_hash_hex}&s={s}"
     return "".join(rsa_oaep_sha1_hex(n_sig, e_sig, chunk) for chunk in chunk53(plaintext))
@@ -256,8 +314,12 @@ def sign_request(aes: AesKey, request_hash: str, seq: int, data_b64: str) -> str
     ``h=<hash>&s=<seq+len(data)>``, hex outputs concatenated.
 
     ``request_hash`` is this request's :func:`rolling_hash`. The 73-char sample
-    plaintext yields two chunks and therefore 128 hex characters, not 64.
+    plaintext yields two chunks and therefore 128 hex characters, not 64. A falsy
+    ``seq`` yields the empty string: the bundle's ``encrypt()`` opens
+    ``if(!this.sequence) return {}`` and emits nothing for a zero sequence.
     """
+    if not seq:
+        return ""
     s = _s_value(seq, data_b64)
     plaintext = f"h={request_hash}&s={s}"
     mac_key = aes.formatted.encode("utf-8")

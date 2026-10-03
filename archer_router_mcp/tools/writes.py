@@ -15,23 +15,22 @@ import ipaddress
 from typing import TYPE_CHECKING, Any
 
 from ..core.redact import is_sensitive_key
-from ..errors import PreconditionFailed, R0Unconfirmed, RateLimited
+from ..errors import PreconditionFailed, RateLimited
 from ..normalize import as_bool, as_int, decode_name, first_present, mac_dashed, normalize_mac
 from ._write_common import (
     IP_KEYS,
     MAC_KEYS,
     WIFI_BANDS,
+    commit_write,
     find_by_mac,
     guarded,
     obj_of,
     plan,
-    reject_protected,
     rows_of,
     valid_bool,
     valid_ipv4,
     valid_mac,
     valid_name,
-    wifi_write_confirmed,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -89,19 +88,26 @@ async def router_add_dhcp_reservation(
         *_rest, request = prep()
         return {"dry_run": request}
 
+    async def _load(session: RouterSession) -> list[dict[str, Any]]:
+        return rows_of(await session.request("admin/dhcps", "reservation", "load"))
+
     async def live(session: RouterSession) -> dict[str, Any]:
         cmac, cip, request = prep()
-        before = rows_of(await session.request("admin/dhcps", "reservation", "load"))
+        before = await _load(session)
         _check_reservation_free(before, cmac, cip)
         _check_in_lan_subnet(await session.request("admin/network", "lan_ipv4", "read"), cip)
-        await session.request(
-            request["path"], request["form"], request["operation"], request["params"]
+        after, outcome = await commit_write(
+            session,
+            request,
+            read_back=_load,
+            verify=lambda rows: find_by_mac(rows, cmac)[1] is not None,
+            context={"mac": cmac},
         )
-        after = rows_of(await session.request("admin/dhcps", "reservation", "load"))
         return {
             "applied": request,
             "before": _reservation_view(before),
             "after": _reservation_view(after),
+            "outcome": outcome,
         }
 
     return await guarded(components, "router_add_dhcp_reservation", confirm_write, dry, live)
@@ -126,22 +132,52 @@ def _check_reservation_free(rows: list[dict[str, Any]], cmac: str, cip: str) -> 
 
 
 def _check_in_lan_subnet(lan_raw: Any, cip: str) -> None:
+    """Refuse a reservation IP that is not provably inside the LAN subnet (RW-F7).
+
+    The subnet check used to fail OPEN when the LAN read lacked a mask. It now fails
+    CLOSED: a mask lets us refuse any out-of-subnet IP; without a usable mask we fall
+    back to the conventional ``/24`` to catch a clearly wrong network, and otherwise
+    refuse ``subnet_unknown`` because membership cannot be confirmed.
+    """
     fields = obj_of(lan_raw)
     ipaddr = first_present(fields, ("ipaddr", "lan_ipv4_ipaddr", "ip"))
     mask = first_present(fields, ("mask", "netmask"))
-    if not isinstance(ipaddr, str) or not isinstance(mask, str):
-        return  # subnet unknown -> cannot check; allow (documented).
     try:
-        net = ipaddress.ip_network(f"{ipaddr}/{mask}", strict=False)
         target = ipaddress.ip_address(cip)
-    except ValueError:
+    except ValueError:  # pragma: no cover - cip is pre-validated by valid_ipv4
         return
-    if target not in net:
-        raise PreconditionFailed(
-            f"{cip} is outside the LAN subnet {net}.",
-            reason="outside_lan_subnet",
-            context={"ip": cip, "subnet": str(net)},
-        )
+    if isinstance(ipaddr, str) and isinstance(mask, str):
+        try:
+            net = ipaddress.ip_network(f"{ipaddr}/{mask}", strict=False)
+        except ValueError:
+            net = None
+        if net is not None:
+            if target not in net:
+                raise PreconditionFailed(
+                    f"{cip} is outside the LAN subnet {net}.",
+                    reason="outside_lan_subnet",
+                    context={"ip": cip, "subnet": str(net)},
+                )
+            return
+    # No usable mask: fail closed. A clearly wrong network is reported as such; anything
+    # else is refused because the subnet cannot be confirmed.
+    if isinstance(ipaddr, str):
+        try:
+            assumed = ipaddress.ip_network(f"{ipaddr}/24", strict=False)
+        except ValueError:
+            assumed = None
+        if assumed is not None and target not in assumed:
+            raise PreconditionFailed(
+                f"{cip} is outside the LAN subnet {assumed} (mask unknown; assumed /24).",
+                reason="outside_lan_subnet",
+                context={"ip": cip, "subnet": str(assumed), "mask": "assumed /24"},
+            )
+    raise PreconditionFailed(
+        f"Refusing {cip}: the LAN subnet mask could not be determined, so the IP cannot be "
+        "confirmed inside the LAN.",
+        reason="subnet_unknown",
+        context={"ip": cip},
+    )
 
 
 async def router_remove_dhcp_reservation(
@@ -156,9 +192,7 @@ async def router_remove_dhcp_reservation(
     """
 
     def prep() -> str:
-        cmac = valid_mac(mac)
-        reject_protected(components.settings, cmac, "remove the reservation for")
-        return cmac
+        return valid_mac(mac)
 
     async def dry() -> dict[str, Any]:
         cmac = prep()
@@ -172,9 +206,12 @@ async def router_remove_dhcp_reservation(
             }
         }
 
+    async def _load(session: RouterSession) -> list[dict[str, Any]]:
+        return rows_of(await session.request("admin/dhcps", "reservation", "load"))
+
     async def live(session: RouterSession) -> dict[str, Any]:
         cmac = prep()
-        before = rows_of(await session.request("admin/dhcps", "reservation", "load"))
+        before = await _load(session)
         index, row = find_by_mac(before, cmac)
         if row is None:
             raise PreconditionFailed(
@@ -185,17 +222,28 @@ async def router_remove_dhcp_reservation(
         request = plan(
             "admin/dhcps", "reservation", "remove", {"key": row.get("key"), "index": index}
         )
-        await session.request(
-            request["path"], request["form"], request["operation"], request["params"]
+        after, outcome = await commit_write(
+            session,
+            request,
+            read_back=_load,
+            verify=lambda rows: find_by_mac(rows, cmac)[1] is None,
+            context={"mac": cmac},
         )
-        after = rows_of(await session.request("admin/dhcps", "reservation", "load"))
         return {
             "applied": request,
             "before": _reservation_view(before),
             "after": _reservation_view(after),
+            "outcome": outcome,
         }
 
-    return await guarded(components, "router_remove_dhcp_reservation", confirm_write, dry, live)
+    return await guarded(
+        components,
+        "router_remove_dhcp_reservation",
+        confirm_write,
+        dry,
+        live,
+        protect=(mac, "remove the reservation for"),
+    )
 
 
 # ====================================================================== Wi-Fi
@@ -241,22 +289,37 @@ async def router_set_wifi(
             out["warning"] = warn
         return out
 
+    async def _read(session: RouterSession) -> dict[str, Any]:
+        return obj_of(await session.request("admin/wireless", f"wireless_{prep()}", "read_spf"))
+
     async def live(session: RouterSession) -> dict[str, Any]:
+        # The R0 gate runs in the wrapper (router_set_wifi is INFERRED): this body is
+        # only reached once the verified doc confirms the write_spf fields.
         b = prep()
-        if not wifi_write_confirmed():
-            raise R0Unconfirmed(
-                "Refusing a live Wi-Fi write: the write_spf body is unverified until the R0 "
-                "live capture records it in docs/protocol/archer-ax53-verified.md. Use "
-                "ARCHER_ROUTER_DRY_RUN=true to review the planned body."
-            )
         before = obj_of(await session.request("admin/wireless", f"wireless_{b}", "read_spf"))
         wire = {**before, "enable": "on" if enabled else "off"}
         wire.pop("data", None)
         echo = {k: v for k, v in wire.items() if not is_sensitive_key(k)}
         request = plan("admin/wireless", f"wireless_{b}", "write_spf", echo)
-        await session.request("admin/wireless", f"wireless_{b}", "write_spf", wire)
-        after = obj_of(await session.request("admin/wireless", f"wireless_{b}", "read_spf"))
-        out = {"applied": request, "before": _wifi_view(b, before), "after": _wifi_view(b, after)}
+        # The full ``wire`` (secrets preserved) is written; only ``echo`` is reported.
+        after, outcome = await commit_write(
+            session,
+            {
+                "path": "admin/wireless",
+                "form": f"wireless_{b}",
+                "operation": "write_spf",
+                "params": wire,
+            },
+            read_back=_read,
+            verify=lambda obj: as_bool(obj.get("enable")) is enabled,
+            context={"band": b},
+        )
+        out = {
+            "applied": request,
+            "before": _wifi_view(b, before),
+            "after": _wifi_view(b, after),
+            "outcome": outcome,
+        }
         if (warn := warning(b)) is not None:
             out["warning"] = warn
         return out
@@ -292,8 +355,13 @@ async def router_reboot(components: Components, *, confirm_write: bool = False) 
                 retry_after_s=status["retry_after_s"],
                 next_allowed=status["next_allowed"],
             )
+        # A reboot is one-shot and non-idempotent: never resend it on a lost reply.
         ack = await session.request(
-            request["path"], request["form"], request["operation"], request["params"]
+            request["path"],
+            request["form"],
+            request["operation"],
+            request["params"],
+            idempotent=False,
         )
         limiter.record(now)
         return {"applied": request, "ack": ack, "rate_limit": limiter.status(now)}

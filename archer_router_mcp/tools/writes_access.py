@@ -10,17 +10,17 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from ..errors import PreconditionFailed
+from ..errors import PreconditionFailed, WriteOutcomeUnknown
 from ..normalize import as_bool, as_int, first_present, mac_dashed, normalize_mac
 from ._write_common import (
     ACCESS_MODES,
     MAC_KEYS,
+    commit_write,
     find_by_mac,
     guarded,
     mac_view,
     obj_of,
     plan,
-    reject_protected,
     rows_of,
     valid_bool,
     valid_kbps,
@@ -87,7 +87,6 @@ async def router_block_device(
 
     def prep() -> tuple[str, dict[str, Any]]:
         cmac = valid_mac(mac)
-        reject_protected(components.settings, cmac, "block")
         params = {"new": {"mac": mac_dashed(cmac)}, "index": 0}
         return cmac, plan("admin/access_control", "black_list", "insert", params)
 
@@ -95,23 +94,37 @@ async def router_block_device(
         _cmac, request = prep()
         return {"dry_run": request}
 
+    async def _load(session: RouterSession) -> list[dict[str, Any]]:
+        return rows_of(await session.request("admin/access_control", "black_list", "load"))
+
     async def live(session: RouterSession) -> dict[str, Any]:
         cmac, request = prep()
-        before = rows_of(await session.request("admin/access_control", "black_list", "load"))
+        before = await _load(session)
         if find_by_mac(before, cmac)[1] is not None:
             return {
                 "applied": None,
                 "note": "already blocked",
                 "before": mac_view(before),
                 "after": mac_view(before),
+                "outcome": "landed",
             }
-        await session.request(
-            request["path"], request["form"], request["operation"], request["params"]
+        after_rows, outcome = await commit_write(
+            session,
+            request,
+            read_back=_load,
+            verify=lambda rows: find_by_mac(rows, cmac)[1] is not None,
+            context={"mac": cmac},
         )
-        after = rows_of(await session.request("admin/access_control", "black_list", "load"))
-        return {"applied": request, "before": mac_view(before), "after": mac_view(after)}
+        return {
+            "applied": request,
+            "before": mac_view(before),
+            "after": mac_view(after_rows),
+            "outcome": outcome,
+        }
 
-    return await guarded(components, "router_block_device", confirm_write, dry, live)
+    return await guarded(
+        components, "router_block_device", confirm_write, dry, live, protect=(mac, "block")
+    )
 
 
 async def router_unblock_device(
@@ -120,8 +133,9 @@ async def router_unblock_device(
     """Unblock a client by MAC (``access_control?form=black_list`` remove). MUTATES.
 
     Loads the black list, finds the row for ``mac`` and removes it by key+index.
-    Always allowed (restoring access is safe, even for a protected MAC). Idempotent: a
-    MAC that is not blocked is reported as such. Double-gated; before/after lists.
+    Refused with ``PROTECTED_TARGET`` for a protected MAC (protected devices are
+    managed by hand; RW-F3). Idempotent: a MAC that is not blocked is reported as such.
+    Double-gated; before/after lists.
     """
 
     def prep() -> str:
@@ -139,9 +153,12 @@ async def router_unblock_device(
             }
         }
 
+    async def _load(session: RouterSession) -> list[dict[str, Any]]:
+        return rows_of(await session.request("admin/access_control", "black_list", "load"))
+
     async def live(session: RouterSession) -> dict[str, Any]:
         cmac = prep()
-        before = rows_of(await session.request("admin/access_control", "black_list", "load"))
+        before = await _load(session)
         index, row = find_by_mac(before, cmac)
         if row is None:
             return {
@@ -149,17 +166,28 @@ async def router_unblock_device(
                 "note": "not blocked",
                 "before": mac_view(before),
                 "after": mac_view(before),
+                "outcome": "landed",
             }
         request = plan(
             "admin/access_control", "black_list", "remove", {"key": row.get("key"), "index": index}
         )
-        await session.request(
-            request["path"], request["form"], request["operation"], request["params"]
+        after_rows, outcome = await commit_write(
+            session,
+            request,
+            read_back=_load,
+            verify=lambda rows: find_by_mac(rows, cmac)[1] is None,
+            context={"mac": cmac},
         )
-        after = rows_of(await session.request("admin/access_control", "black_list", "load"))
-        return {"applied": request, "before": mac_view(before), "after": mac_view(after)}
+        return {
+            "applied": request,
+            "before": mac_view(before),
+            "after": mac_view(after_rows),
+            "outcome": outcome,
+        }
 
-    return await guarded(components, "router_unblock_device", confirm_write, dry, live)
+    return await guarded(
+        components, "router_unblock_device", confirm_write, dry, live, protect=(mac, "unblock")
+    )
 
 
 async def router_set_access_mode(
@@ -198,12 +226,21 @@ async def router_set_access_mode(
             )
         return out
 
-    async def live(session: RouterSession) -> dict[str, Any]:
-        m = prep()
-        before = _access_view(
+    async def read_state(session: RouterSession) -> dict[str, Any]:
+        return _access_view(
             await session.request("admin/access_control", "enable", "read"),
             await session.request("admin/access_control", "mode", "read"),
         )
+
+    async def live(session: RouterSession) -> dict[str, Any]:
+        m = prep()
+
+        def landed(after: dict[str, Any]) -> bool:
+            if m == "off":
+                return after["enabled"] is False
+            return after["mode"] == m and after["enabled"] is True
+
+        before = await read_state(session)
         if m == "whitelist":
             white = rows_of(await session.request("admin/access_control", "white_list", "load"))
             present = {normalize_mac(first_present(r, MAC_KEYS)) for r in white}
@@ -216,15 +253,27 @@ async def router_set_access_mode(
                     context={"missing": missing},
                 )
         applied = plans(m)
-        for request in applied:
-            await session.request(
-                request["path"], request["form"], request["operation"], request["params"]
-            )
-        after = _access_view(
-            await session.request("admin/access_control", "enable", "read"),
-            await session.request("admin/access_control", "mode", "read"),
-        )
-        return {"applied": applied, "before": before, "after": after}
+        try:
+            for request in applied:
+                await session.request(
+                    request["path"],
+                    request["form"],
+                    request["operation"],
+                    request["params"],
+                    idempotent=False,
+                )
+        except WriteOutcomeUnknown as exc:
+            # A reply was lost mid-sequence: never resend; read the mode back instead.
+            after = await read_state(session)
+            if not landed(after):
+                raise WriteOutcomeUnknown(
+                    "An access-mode write's reply was lost and the mode did not fully apply.",
+                    outcome="not_landed",
+                    context={"mode": m},
+                ) from exc
+            return {"applied": applied, "before": before, "after": after, "outcome": "landed"}
+        after = await read_state(session)
+        return {"applied": applied, "before": before, "after": after, "outcome": "landed"}
 
     return await guarded(components, "router_set_access_mode", confirm_write, dry, live)
 
@@ -247,9 +296,8 @@ async def router_set_client_speed_limit(
     maxima (``read_max``) first. Field names are INFERRED. Double-gated.
     """
 
-    def prep() -> tuple[int, int, dict[str, Any]]:
+    def prep() -> tuple[str, int, int, dict[str, Any]]:
         cmac = valid_mac(mac)
-        reject_protected(components.settings, cmac, "limit")
         down = valid_kbps(down_kbps, "down_kbps")
         up = valid_kbps(up_kbps, "up_kbps")
         params = {
@@ -258,26 +306,44 @@ async def router_set_client_speed_limit(
             "up_kbps": up,
             "enable": "on" if (down > 0 or up > 0) else "off",
         }
-        return down, up, plan("admin/smart_network", "client_speed_limit", "write", params)
+        return cmac, down, up, plan("admin/smart_network", "client_speed_limit", "write", params)
 
     async def dry() -> dict[str, Any]:
         *_rest, request = prep()
         return {"dry_run": request}
 
+    async def _load(session: RouterSession) -> list[dict[str, Any]]:
+        return rows_of(
+            await session.request("admin/smart_network", "client_speed_limit", "read_max")
+        )
+
     async def live(session: RouterSession) -> dict[str, Any]:
-        down, up, request = prep()
+        cmac, down, up, request = prep()
         bounds_raw = await session.request("admin/smart_network", "client_speed_limit", "read_max")
         _check_speed_bounds(bounds_raw, down, up)
         before = _speed_view(rows_of(bounds_raw))
-        await session.request(
-            request["path"], request["form"], request["operation"], request["params"]
+        after_rows, outcome = await commit_write(
+            session,
+            request,
+            read_back=_load,
+            verify=lambda rows: find_by_mac(rows, cmac)[1] is not None,
+            context={"mac": cmac},
         )
-        after = _speed_view(
-            rows_of(await session.request("admin/smart_network", "client_speed_limit", "read_max"))
-        )
-        return {"applied": request, "before": before, "after": after}
+        return {
+            "applied": request,
+            "before": before,
+            "after": _speed_view(after_rows),
+            "outcome": outcome,
+        }
 
-    return await guarded(components, "router_set_client_speed_limit", confirm_write, dry, live)
+    return await guarded(
+        components,
+        "router_set_client_speed_limit",
+        confirm_write,
+        dry,
+        live,
+        protect=(mac, "limit"),
+    )
 
 
 def _check_speed_bounds(raw: Any, down: int, up: int) -> None:
@@ -312,26 +378,30 @@ async def router_set_wifi_schedule(
     before/after {enabled, rule_count}.
     """
 
-    def prep() -> dict[str, Any]:
+    def prep() -> tuple[bool, dict[str, Any]]:
         norm = valid_rules(rules)
         params = {"enable": "on" if norm else "off", "rule_list": norm}
-        return plan("admin/wireless_schedule_v2", "settings", "write", params)
+        return bool(norm), plan("admin/wireless_schedule_v2", "settings", "write", params)
 
     async def dry() -> dict[str, Any]:
-        return {"dry_run": prep()}
+        _enabled, request = prep()
+        return {"dry_run": request}
+
+    async def _read(session: RouterSession) -> dict[str, Any]:
+        return _schedule_view(
+            await session.request("admin/wireless_schedule_v2", "settings", "read")
+        )
 
     async def live(session: RouterSession) -> dict[str, Any]:
-        request = prep()
-        before = _schedule_view(
-            await session.request("admin/wireless_schedule_v2", "settings", "read")
+        want_enabled, request = prep()
+        before = await _read(session)
+        after, outcome = await commit_write(
+            session,
+            request,
+            read_back=_read,
+            verify=lambda view: view["enabled"] is want_enabled,
         )
-        await session.request(
-            request["path"], request["form"], request["operation"], request["params"]
-        )
-        after = _schedule_view(
-            await session.request("admin/wireless_schedule_v2", "settings", "read")
-        )
-        return {"applied": request, "before": before, "after": after}
+        return {"applied": request, "before": before, "after": after, "outcome": outcome}
 
     return await guarded(components, "router_set_wifi_schedule", confirm_write, dry, live)
 
@@ -345,36 +415,49 @@ async def router_isolate_device(
     """Isolate or un-isolate a device (``iot_security?form=isolated_list``). MUTATES.
 
     ``isolate=True`` writes the MAC into the isolated list; ``isolate=False`` removes
-    it. Isolating a protected MAC is refused with ``PROTECTED_TARGET`` (un-isolating is
-    always allowed — it restores access). Field names are INFERRED. Double-gated;
-    before/after isolated-MAC lists.
+    it. Both directions are refused with ``PROTECTED_TARGET`` for a protected MAC
+    (protected devices are managed by hand; RW-F3). Field names are INFERRED.
+    Double-gated; before/after isolated-MAC lists.
     """
 
-    def prep() -> dict[str, Any]:
+    def prep() -> tuple[str, dict[str, Any]]:
         cmac = valid_mac(mac)
         valid_bool(isolate, "isolate")
-        if isolate:
-            reject_protected(components.settings, cmac, "isolate")
-            return plan("admin/iot_security", "isolated_list", "write", {"mac": mac_dashed(cmac)})
-        return plan("admin/iot_security", "isolated_list", "remove", {"mac": mac_dashed(cmac)})
+        op = "write" if isolate else "remove"
+        return cmac, plan("admin/iot_security", "isolated_list", op, {"mac": mac_dashed(cmac)})
 
     async def dry() -> dict[str, Any]:
-        return {"dry_run": prep()}
+        _cmac, request = prep()
+        return {"dry_run": request}
+
+    async def _load(session: RouterSession) -> list[dict[str, Any]]:
+        return rows_of(await session.request("admin/iot_security", "isolated_list", "load"))
 
     async def live(session: RouterSession) -> dict[str, Any]:
-        request = prep()
-        before = mac_view(
-            rows_of(await session.request("admin/iot_security", "isolated_list", "load"))
+        cmac, request = prep()
+        before = mac_view(await _load(session))
+        after_rows, outcome = await commit_write(
+            session,
+            request,
+            read_back=_load,
+            verify=lambda rows: (find_by_mac(rows, cmac)[1] is not None) is isolate,
+            context={"mac": cmac},
         )
-        await session.request(
-            request["path"], request["form"], request["operation"], request["params"]
-        )
-        after = mac_view(
-            rows_of(await session.request("admin/iot_security", "isolated_list", "load"))
-        )
-        return {"applied": request, "before": before, "after": after}
+        return {
+            "applied": request,
+            "before": before,
+            "after": mac_view(after_rows),
+            "outcome": outcome,
+        }
 
-    return await guarded(components, "router_isolate_device", confirm_write, dry, live)
+    return await guarded(
+        components,
+        "router_isolate_device",
+        confirm_write,
+        dry,
+        live,
+        protect=(mac, "isolate" if isolate else "un-isolate"),
+    )
 
 
 # ======================================================================== WoL
@@ -385,9 +468,9 @@ async def router_wol(
 ) -> dict[str, Any]:
     """Send a Wake-on-LAN magic packet to a device (``wol?form=device`` wakeup). MUTATES.
 
-    A one-shot action (not a persistent change), so there is no before/after read;
-    waking a device is benign, so protected MACs are allowed. Field names are INFERRED.
-    Double-gated.
+    A one-shot action (not a persistent change), so there is no before/after read.
+    Refused with ``PROTECTED_TARGET`` for a protected MAC (protected devices are managed
+    by hand; RW-F3). Field names are INFERRED. Double-gated.
     """
 
     def prep() -> dict[str, Any]:
@@ -399,13 +482,20 @@ async def router_wol(
 
     async def live(session: RouterSession) -> dict[str, Any]:
         request = prep()
+        # One-shot, non-idempotent: a lost reply surfaces as WRITE_OUTCOME_UNKNOWN rather
+        # than resending the packet (there is no state to read back).
         ack = await session.request(
-            request["path"], request["form"], request["operation"], request["params"]
+            request["path"],
+            request["form"],
+            request["operation"],
+            request["params"],
+            idempotent=False,
         )
         return {
             "applied": request,
             "ack": ack,
             "note": "Wake-on-LAN is a one-shot action; there is no state to re-read",
+            "outcome": "landed",
         }
 
-    return await guarded(components, "router_wol", confirm_write, dry, live)
+    return await guarded(components, "router_wol", confirm_write, dry, live, protect=(mac, "wake"))

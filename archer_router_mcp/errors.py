@@ -30,6 +30,7 @@ __all__ = [
     "RouterError",
     "SessionConflict",
     "TokenExpired",
+    "WriteOutcomeUnknown",
     "error_meaning",
     "normalize_errorcode",
 ]
@@ -163,3 +164,26 @@ class R0Unconfirmed(DeviceError):
     """A live write whose exact body is unverified until the R0 live capture lands."""
 
     kind = "R0_UNCONFIRMED"
+
+
+class WriteOutcomeUnknown(DeviceError):
+    """A non-idempotent write's reply was lost (session timeout) and was NOT resent.
+
+    Raised by the session for a write marked ``idempotent=False`` when the router
+    reports ``timeout`` for it: the write may or may not have landed, so the client
+    re-authenticates and refuses to resend. The guarded-write helper then reads the
+    live state back and refines ``outcome`` to ``landed`` (returned as success),
+    ``not_landed`` or ``unknown`` (both surfaced as this error).
+    """
+
+    kind = "WRITE_OUTCOME_UNKNOWN"
+
+    def __init__(
+        self, message: str, *, outcome: str = "unknown", context: dict[str, Any] | None = None
+    ) -> None:
+        self.outcome = outcome
+        self.context = dict(context or {})
+        super().__init__(message)
+
+    def details(self) -> dict[str, Any]:
+        return {"outcome": self.outcome, **self.context}

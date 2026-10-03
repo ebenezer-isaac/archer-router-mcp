@@ -64,6 +64,7 @@ class FakeRouter:
         device_config_html: bool = False,
         login_html: bool = False,
         authed_payload: dict[str, Any] | None = None,
+        reads: dict[str, Any] | None = None,
     ) -> None:
         self._password = password
         self._envelope = envelope
@@ -78,6 +79,7 @@ class FakeRouter:
         self._device_config_html = device_config_html
         self._login_html = login_html
         self._authed_payload = authed_payload or {"ok": True}
+        self._reads = reads or {}
         self._session_aes: dict[str, AesKey] = {}
         self.fingerprint = FINGERPRINT_A
         # observability
@@ -85,6 +87,7 @@ class FakeRouter:
         self.confirm_values: list[bool] = []
         self.paths: list[tuple[str, str | None]] = []
         self.authed_requests: list[tuple[str, str, str]] = []  # (form, data_b64, sign)
+        self.authed_ops: list[tuple[str, str, str]] = []  # (module, form, operation)
 
     # -- httpx wiring --------------------------------------------------------
 
@@ -190,18 +193,34 @@ class FakeRouter:
     def _authed(self, path: str, form: str | None, body: str) -> httpx.Response:
         match = re.search(r";stok=([^/]*)", path)
         stok = match.group(1) if match else ""
+        module = path.rstrip("/").split("/")[-1]
         if form != "logout" and self._authed_errors:
             injected = self._authed_errors.pop(0)
             if injected:
                 return httpx.Response(200, content=json.dumps({"errorcode": injected}))
-        if self._envelope == "https-plain":
-            return self._plain({"success": True, "data": self._authed_payload})
         aes = self._session_aes.get(stok)
-        if aes is None:
+        if self._envelope != "https-plain" and aes is None:
             return httpx.Response(200, content=json.dumps({"errorcode": "timeout"}))
+        plain = body if self._envelope == "https-plain" else self._decrypt_body(aes, body)
+        operation = _parse_pairs(plain).get("operation", "")
+        self.authed_ops.append((module, form or "", operation))
+        if self._envelope != "https-plain":
+            pairs = _parse_pairs(body)
+            self.authed_requests.append((form or "", unquote(pairs["data"]), pairs["sign"]))
+        payload = self._read_payload(module, form)
+        return self._enveloped(aes, payload)
+
+    def _decrypt_body(self, aes: AesKey | None, body: str) -> str:
+        if aes is None:  # pragma: no cover - guarded by caller
+            return body
         pairs = _parse_pairs(body)
-        self.authed_requests.append((form or "", unquote(pairs["data"]), pairs["sign"]))
-        return self._enveloped(aes, {"success": True, "data": self._authed_payload})
+        return crypto.aes_decrypt(aes, unquote(pairs["data"]))
+
+    def _read_payload(self, module: str, form: str | None) -> dict[str, Any]:
+        for key in (f"{module}:{form}", form):
+            if key in self._reads:
+                return self._reads[key]
+        return {"success": True, "data": self._authed_payload}
 
     # -- envelope helpers ----------------------------------------------------
 
@@ -228,6 +247,7 @@ def build_components(
     fingerprint_probe: Any = None,
     tls_fingerprint: str | None = None,
     rng: random.Random | None = None,
+    clock: Any = None,
 ) -> Components:
     env = {
         "ARCHER_ROUTER_HOST": "192.0.2.1",
@@ -245,4 +265,5 @@ def build_components(
         http_transport=fake.transport(),
         fingerprint_probe=probe,
         rng=rng or random.Random(12345),
+        clock=clock,
     )

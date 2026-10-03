@@ -23,7 +23,8 @@ from pathlib import Path
 ALLOW_MARKER = "secret-scan: allow"
 
 # Each rule: (name, compiled regex). Placeholders such as <token>, {token},
-# $VAR, and RFC 5737 documentation addresses (192.0.2.x etc.) do not match.
+# $VAR, RFC 5737 documentation addresses (192.0.2.x etc.) and the RFC 7042
+# documentation MAC range (00:00:5E:00:53:xx) do not match.
 RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "private_ipv4",
@@ -38,7 +39,10 @@ RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "mac_address",
         re.compile(
-            r"(?<![0-9A-Fa-f:-])(?:[0-9A-Fa-f]{2}([:-]))(?:[0-9A-Fa-f]{2}\1){4}"
+            r"(?<![0-9A-Fa-f:-])"
+            # Exempt the RFC 7042 documentation MAC range 00:00:5E:00:53:xx.
+            r"(?!00[:-]00[:-]5[eE][:-]00[:-]53[:-])"
+            r"(?:[0-9A-Fa-f]{2}([:-]))(?:[0-9A-Fa-f]{2}\1){4}"
             r"[0-9A-Fa-f]{2}(?![0-9A-Fa-f:-])"
         ),
     ),

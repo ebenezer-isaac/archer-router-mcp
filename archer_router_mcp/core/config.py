@@ -36,6 +36,8 @@ DEVICE_ENV_SUFFIXES: dict[str, str] = {
     "STATE_DIR": "state_dir",
     "FORCE_SESSION_TAKEOVER": "force_session_takeover",
     "ENVELOPE": "envelope",
+    "PRESENCE_MAX_MB": "presence_max_mb",
+    "PRESENCE_INTERVAL_S": "presence_interval_s",
 }
 GLOBAL_ENV_SUFFIXES: dict[str, str] = {
     "TRANSPORT": "mcp_transport",
@@ -92,6 +94,10 @@ class DeviceSettings(BaseModel):
     state_dir: str | None = None
     force_session_takeover: bool = False
     envelope: Literal["auto", "https-plain", "http-encrypted"] = "auto"
+    # Presence history (R3): JSON-lines log size cap, and the in-server sampler
+    # interval. An interval of 0 disables the background sampler.
+    presence_max_mb: float = Field(default=20.0, gt=0.0, le=1024.0, allow_inf_nan=False)
+    presence_interval_s: float = Field(default=0.0, ge=0.0, le=86400.0, allow_inf_nan=False)
 
     @field_validator("host", mode="before")
     @classmethod

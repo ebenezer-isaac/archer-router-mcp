@@ -1,0 +1,32 @@
+# Secrets and local configuration
+.env
+*.env
+!.env.example
+
+# Capture output (contains session tokens) and logs
+captures/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+
+# Node (capture tool)
+node_modules/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+backups/

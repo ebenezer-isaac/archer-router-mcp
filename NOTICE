@@ -1,0 +1,26 @@
+archer-router-mcp
+Copyright (c) 2026 Ebenezer Isaac and contributors
+Licensed under the MIT License (see LICENSE).
+
+Clean-room notice
+-----------------
+This project is a clean-room, native Python reimplementation of the TP-Link
+Archer AX53 v1 web-UI authentication and request protocol. It was written from
+two first-party reference documents produced by observing and executing the
+router's own static JavaScript bundle offline:
+
+  * docs/specs/archer-ax53-auth-flow.md  (the protocol, tagged [V]/[O]/[I])
+  * tests/fixtures/router_auth_vectors.json  (byte-exact vectors)
+
+The GPL-3.0 project `tplinkrouterc6u` (notably `client/sg.py`) was consulted
+**only** to cross-check observed behaviour. No code, comments, structure, or
+other copyrightable expression from that project was copied, adapted, or
+incorporated here. This repository contains no GPL-licensed code and is
+distributable under the MIT License.
+
+Test vectors
+------------
+`tests/fixtures/router_auth_vectors.json` contains a throwaway RSA private key
+and dummy inputs (password "TestPass123") generated offline for deterministic
+crypto tests. No real device credentials, keys, addresses, or hardware
+identifiers appear anywhere in this repository.

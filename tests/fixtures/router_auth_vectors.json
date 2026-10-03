@@ -1,0 +1,87 @@
+{
+  "_about": "Byte-exact AX53 (UI 1.11.0, SG CLS L1 STAGE2 profile) login/request vectors produced by EXECUTING the router web bundle update-store-DQkZxaRI.js in Node with polyfilled browser globals and NO network. Dummy inputs only. DETERMINISTIC fields (password hash, AES ciphertext, s, HMAC sign, rolling hash) MUST match exactly in any port. NON-DETERMINISTIC fields (anything through RSA: password_rsa, login sign) differ every run because the RSA keypair and OAEP seed are random; for those, match the plaintext-before-RSA and the scheme, not the bytes.",
+  "inputs": {
+    "password": "TestPass123",
+    "aes_key_16_decimal_digits": "1234567890123456",
+    "aes_iv_16_decimal_digits": "6543210987654321",
+    "seq": 1000,
+    "rsa_public_n_hex": "acbef025b28a7d2417ee3145e736c93221205b46ef45338341ed0484cb3f37540bef30c76c463194adc9a9d4f104e7461b744a07407ff72108daaeb3f988b4eaf0408e160dce83677a33cc04f716f9bfeca7d7deeb56a35d19e0d0a6d211c68a182306498f02b65ebccf73a50f837af2fdc6ea86f2f0ea523f387e10e429736be7b09a76cadb773fa3ae2d76d4c5d98c029713070d3a067c144e3da51cac848cb09c0c2077b0561c45c693cf9e2fa12ec959396907bbfde2c1cc5624b017fc3213a69420e993d39146543d66d9947064094766b06a3041a2c008de3123bdeddd6164df5b6173abfd0e1bd2c652ab94a28c4ee0ca5aa92adcef19303a9dca4da1",
+    "rsa_public_e_hex": "010001",
+    "test_rsa_private_pem_pkcs8": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCsvvAlsop9JBfu\nMUXnNskyISBbRu9FM4NB7QSEyz83VAvvMMdsRjGUrcmp1PEE50YbdEoHQH/3IQja\nrrP5iLTq8ECOFg3Og2d6M8wE9xb5v+yn197rVqNdGeDQptIRxooYIwZJjwK2XrzP\nc6UPg3ry/cbqhvLw6lI/OH4Q5Clza+ewmnbK23c/o64tdtTF2YwClxMHDToGfBRO\nPaUcrISMsJwMIHewVhxFxpPPni+hLslZOWkHu/3iwcxWJLAX/DITppQg6ZPTkUZU\nPWbZlHBkCUdmsGowQaLACN4xI73t3WFk31thc6v9DhvSxlKrlKKMTuDKWqkq3O8Z\nMDqdyk2hAgMBAAECggEAFa+8z0a8SxySYoVODMpcdM4i1UKw/COM6WRbil5Ht+b1\nvpgFmSqww8UTiZ4hieeM7hppxsJKrlg319hR4NRQPiRePlg3cIMfpQBGryLkAAOf\nrqyToEDWrnP2vMsMmU2u/Xu8KNTq1sFK+9I9WRa9Ay9n3v6FFkicfbJWZUF3kLU4\npoDwISk73Fa0IaeDnL+3QUnDx9axXPVush08idTdXyiStg6XV9xm43IkqiNSSiFL\nzf/CBwureIryg2C3hpzQ9wgZNcxxgW0nYRWdkpVWs1TbPMk1R4OvPsRHUdqTzuuP\noGM3NxCAsxNeTW47bHW5GEqmxJi4rcjxVjyApFaKRwKBgQDodafPwnjSQ/Dl3rV+\nlO+TUNy8CzX4zTCC1Hvd4DVf/Nfp5emXWJ2k5MfJJ6ZEXlKx4BVvLn7mNjZFpOxs\nlEivZGS+Wc0M9ePO3cNp7RWHrb/1hrPABTXLVMYloxHsuWSnxmkWyGM+yky+kl2h\nQvoJGaYNo/zZ0Y+82JmgnTdKAwKBgQC+PT9k1Qi0lc9M6MlLOvgw41sgD/Eq3OO3\nc0GIScEszoOdk/6rfrs6UfM6mYgL8vwEk732zi/GURmgmeBR2Sn2p9GUYH0lPwQ0\nyojHQnBGrK+D80ut/Qcugwgo1HSOXqL+Wp7K0eub7kjH/5hRvTOTTVw7pHYCTLos\nYaswI0sKiwKBgQCc/0l1EdzT9brvJTji4ufjUMuj3NZ40OwgkC2QLmseBwA0Imlf\nJCRkR3d/Ld4ncqTbKYKQcpCWHqsM4lQjCQsGGgHIZZINXMyc3D2sfsj5t6lbw7wG\nxf4M85ZXuQjUHmoSvfgfwPr2X17xnpzJ2xhPqRjzQXv2CIjRfGBVj5jVzQKBgA2S\nCuqjc7qGEUKYPHu8WiYKod54pKh9F1VnyF3zfO84UBU2kG0lXi+71tDwUM8hZy7g\nZyWq8aeA84YMU/8isaahtAaUl3jHtQIbDITCTYYNHXwZJ+Xibde4iyV2elYJlDD2\nv+sR7G+0IMb7iZ8TExHH6/NpOO3TEVjHItINQnYfAoGAa1Ygz4abeJeZQUCJKMTb\n2Mvx50+A9aCCaI06Yury+ygBOeMnYTRNRaSuSYOwod2SR8YIMVjNhmmr7udr7O7X\nFsYmQMElN7lRtfizDrNMEzdjizONN6k/qV2xaRuUQyTZvDSfSPzhaGSUZc63MpYS\nASSymSgTWTSSOeZWUQ0Yy0I=\n-----END PRIVATE KEY-----\n"
+  },
+  "feature_flags_for_this_profile": {
+    "1_login_password_strength": false,
+    "2_login_SHA256": true,
+    "3_login_failed": true,
+    "4_multiple_login": true,
+    "5_gdpr": true,
+    "6_hide_HTTPS": false,
+    "12_replace_hash": true,
+    "13_rsa_pad_with_pkcs1_oaep": true,
+    "14_cwmp_password_visible_toggle": false,
+    "15_password_br_rule": false
+  },
+  "b_password_hash": {
+    "deterministic": true,
+    "formula": "SHA256(\"admin\"+password) as lowercase hex (CryptoJS.SHA256).toString()",
+    "literal_prefix": "admin",
+    "case": "hash output lowercase hex; prefix literal lowercase \"admin\"",
+    "value": "9cb9e2216b53faf20bf5b1bd21dc4d5ab7c675379ca55724a79595627cd3151b"
+  },
+  "c_aes": {
+    "deterministic": true,
+    "scheme": "AES-128-CBC, PKCS7 padding",
+    "key_bytes": "the 16 ASCII digit characters as UTF-8 (CryptoJS.enc.Utf8.parse), i.e. 0x31.. not a parsed number",
+    "iv_bytes": "same, 16 ASCII digit chars UTF-8",
+    "sample_plaintext": "operation=read",
+    "ciphertext_base64": "oQqKW5GCl0amLOvltfa+yg==",
+    "ciphertext_base64_len": 24,
+    "note": "AES output is CryptoJS .toString() = base64 of raw ciphertext (no salt header; key/iv supplied explicitly)"
+  },
+  "d_normal_request": {
+    "deterministic": true,
+    "withAesKey": false,
+    "body_form": "data=<b64 ciphertext>&sign=<hex>",
+    "rolling_hash_source": "SHA256(base64 ciphertext of THIS request); set inside encrypt() BEFORE signing, so a lost/duplicated request does NOT desync later requests",
+    "rolling_hash_value": "eff279180339a750cf7b75cf7bf06b3dd139722b2713838ba63262b340546493",
+    "s_formula": "seq + length(base64 ciphertext STRING)",
+    "s_value": 1024,
+    "sign_algo": "HMAC-SHA256 keyed by the AES formatted key \"k=<key>&i=<iv>\", applied per 53-char chunk of the plaintext, hex outputs concatenated",
+    "sign_plaintext": "h=eff279180339a750cf7b75cf7bf06b3dd139722b2713838ba63262b340546493&s=1024",
+    "sign_plaintext_len": 73,
+    "sign_plaintext_chunks_53": [
+      "h=eff279180339a750cf7b75cf7bf06b3dd139722b2713838ba63",
+      "262b340546493&s=1024"
+    ],
+    "sign_output_hex": "22e551e289c3b7796f3c93db20829a52771b6773e2311fae91d043d6ab41f1de6415742e8db2ef4a1a81ea6dda3b0461afdc6f95a3aa49edbec6177fad3c2fe2",
+    "sign_output_hex_len": 128,
+    "data_sent": "oQqKW5GCl0amLOvltfa+yg=="
+  },
+  "d_login_request": {
+    "deterministic": false,
+    "withAesKey": true,
+    "url": "/cgi-bin/luci/;stok=/login?form=login (or initial_login)",
+    "body_form": "data=<b64 AES(password=<pwRsa>&operation=login&confirm=<bool>)>&sign=<hex>",
+    "password_rsa_scheme": "RSA PKCS#1 v1.5 over the RAW password string, jsbn, hex (zero-left-padded to modulus width)",
+    "password_rsa_hex": "1069427894b48c1de82910b9d4f1085f80fa875fc38ee84f976e69478edc1c50b054da0ca9b33a9a1f265484a803c070634e6202f08263a0a771de3a785e3da9987849ad62f77c7212205c239bde66d7618b920b06ba59b91ee7bf48ccbbb30c0029b23065ff210192e2fa14c7e60e72c58e3efd08aefb14581465897c247094ba977a42b6d52e088d53b4da828ae8c467c4aae1e37c7d921f52efd0d0b3dadada766daf83de5b1ff15ed6e670127e444c8bb2c1091c23c966473eedc885913c39d916e58859ab696810a2d0323cbe2369aae269dba2cfcd97e2b15d46b8bae59bed7b29ac8490266a2025fba18cd2483e48cc9d6f6b01326115fd0c0ec335b5",
+    "login_body_plaintext": "password=1069427894b48c1de82910b9d4f1085f80fa875fc38ee84f976e69478edc1c50b054da0ca9b33a9a1f265484a803c070634e6202f08263a0a771de3a785e3da9987849ad62f77c7212205c239bde66d7618b920b06ba59b91ee7bf48ccbbb30c0029b23065ff210192e2fa14c7e60e72c58e3efd08aefb14581465897c247094ba977a42b6d52e088d53b4da828ae8c467c4aae1e37c7d921f52efd0d0b3dadada766daf83de5b1ff15ed6e670127e444c8bb2c1091c23c966473eedc885913c39d916e58859ab696810a2d0323cbe2369aae269dba2cfcd97e2b15d46b8bae59bed7b29ac8490266a2025fba18cd2483e48cc9d6f6b01326115fd0c0ec335b5&operation=login&confirm=false",
+    "login_body_ciphertext_base64": "JQDZJlrA3qcwsaHeNRY+7Z+whXdCpszSTpYd7wtT/9hwImegzfmB5c1dnTz9l3ULf4uQunwLq4hy9LCjEnfaeEE0vcLZckMxTAK/xny6e9HQWuJCd/gGss3wnNkUmHKo5O+zcGVt0W7olAREu8s9s69nFb813nWGAM9mdTd6JfRFibSj9Ix7tUJVrW7xNWrc1rRIvVYOUwaeewh+7oreLbSNmWtpqEg3wXiXe0ApAi1C/VvwvdiWuNimykov9qbPGSYhwFozxI2wTKNVctJqRMwTpWkQofbrBzDLNIGxH7XXD8/UIAvMM/G9ZnRjCBePIn+rNOGSWfU5235a6SjmVTVNsdL2IEXjTmu/HsAKW8AK1+kIKHmi6UEYELObaW2Hf+eFu2CN+cMJCg0hQW9cj5m8sh006314ouwbRV8pcwzDHW9albVN88KvD26t4DTmd6hOHwgTTW/xBIHfN3XtQHCrw+LxZ5HokZQ+c3zmAlGcpcAgKExwbsfzGSH8CZl6g17LdyWw6424JAwEn8/QAVB9h24igxcRXFUKhsS8OOZ+qIWFGXzl9PWKi8kxSalfFfuw2Dp3n5beZeh6aedrGl14ODxKzsCL46MpO/XvDw7T11ITn/utmSR0FVlJL9nZcZwDvrW6O6+ECnbrQXD4BmjnlHiPW/mrKlELPvpB7J/ncHa3HA51xXv0FL29pX2bt9vjBq90sEHIM5O1eFjVyaaWBFuglo6ZIHz1zbh0JIU=",
+    "s_value": 1748,
+    "sign_algo": "RSA-OAEP (SHA-1 + MGF1-SHA1, node-forge default) over the plaintext, per 53-char chunk, hex outputs concatenated",
+    "sign_plaintext_before_rsa": "k=1234567890123456&i=6543210987654321&h=9cb9e2216b53faf20bf5b1bd21dc4d5ab7c675379ca55724a79595627cd3151b&s=1748",
+    "sign_plaintext_len": 111,
+    "sign_plaintext_chunks_53": [
+      "k=1234567890123456&i=6543210987654321&h=9cb9e2216b53f",
+      "af20bf5b1bd21dc4d5ab7c675379ca55724a79595627cd3151b&s",
+      "=1748"
+    ],
+    "hash_in_login_sign": "the password SHA256 hash from encryptor init; login does NOT roll the hash (encrypt() skips the hash update when withAesKey=true)",
+    "sign_output_hex_example": "257dfe8f821ad2e44c48c7bfa4030772f4e2f0cf93b0403c7462d71beb6265681362b35918eb0e8fa101ac3e42b59f4c5238615acb69d993059d81d87ae892a928c360be735d6f4f1c556851d2103060dcbbde75a70afe18bb4c3726804fbd965c3bb027aa736ae4931506237dffd30dd8bd687bbba9ffb45bc27a848503c2a681c398e1954565a95b9148b6708ddd835a104f67b4ff0d70d221b8f28eeacb24c81c30c1f2583e382329b3cad660777d859de31c3f3e7066e74d61f6b1beefb46b4a825f83ec07f56e7ded9e1fc2334aa5ecdc864345145b148536edb3c0f164c6e3a3a70cfe0e00ea3c000487aa8effa5c31bc5df8475960e494aee701bc4d43e67ff16e43f4cccad288a8c7469cf0c1e1154621b3c76b3e19effd6a79769d54cec2df5607296fe4dda9a0e5bb06a9e7fcec037bf47a11b680871a14c74f61948bc603d5442393d0b545c898c5cdf8c86df033b3207f374ba023f661a7d0f725ef7191c348d070c809950fafc2f7c896eb98a1ba5d16950639e4088510b34c878aff1e63910d08f966bd102983c64ac4a50e37f1b224e44147a7a7d94b27800c8775e935ee84e01e1003a842fef5e2de9e31377e7687b6d5ac73983fcd7e741584f1778e25cf6d81360f911824090c276fbcaeccafdc6f6790157b2062e9ce17cb9181f2cdac94bf4c6c6554fa5b1f737f97848875779aed214fe2ac31baaa41de04d3cf46dfc1bc94d198775cff9856d68fdade42597d840497f68083cf09bf681ecc7a2f7f75689b477be765f8428b2161b29cc66eaa1bfec2a277c10fa1964ec03e841402a89e9ac3bcf32c342fbcce3c1b91700f0b267bd19b8f14dc8c6e36dd06d78efb76c926d7c281fc8629f92d6f2d7a401dc88c623ce1059172500edd9cf6adc963515bfa6866742c1f800636f0a4245521a9da1552288cb0c19f18a8244592a152b717f05dafa909e7dca49b6d6c621cf7de64fb23cbb393a803616c296675167f4dd0bc6668d2cd1ec1dd9b588d97f735a0354dc6fb201fa81a221d4ad1de31528fd2938a01da849e41f45d6701fc78379dee9c2f0968238c48f",
+    "sign_output_hex_len": 1536,
+    "data_example": "JQDZJlrA3qcwsaHeNRY+7Z+whXdCpszSTpYd7wtT/9hwImegzfmB5c1dnTz9l3ULf4uQunwLq4hy9LCjEnfaeEE0vcLZckMxTAK/xny6e9HQWuJCd/gGss3wnNkUmHKo5O+zcGVt0W7olAREu8s9s69nFb813nWGAM9mdTd6JfRFibSj9Ix7tUJVrW7xNWrc1rRIvVYOUwaeewh+7oreLbSNmWtpqEg3wXiXe0ApAi1C/VvwvdiWuNimykov9qbPGSYhwFozxI2wTKNVctJqRMwTpWkQofbrBzDLNIGxH7XXD8/UIAvMM/G9ZnRjCBePIn+rNOGSWfU5235a6SjmVTVNsdL2IEXjTmu/HsAKW8AK1+kIKHmi6UEYELObaW2Hf+eFu2CN+cMJCg0hQW9cj5m8sh006314ouwbRV8pcwzDHW9albVN88KvD26t4DTmd6hOHwgTTW/xBIHfN3XtQHCrw+LxZ5HokZQ+c3zmAlGcpcAgKExwbsfzGSH8CZl6g17LdyWw6424JAwEn8/QAVB9h24igxcRXFUKhsS8OOZ+qIWFGXzl9PWKi8kxSalfFfuw2Dp3n5beZeh6aedrGl14ODxKzsCL46MpO/XvDw7T11ITn/utmSR0FVlJL9nZcZwDvrW6O6+ECnbrQXD4BmjnlHiPW/mrKlELPvpB7J/ncHa3HA51xXv0FL29pX2bt9vjBq90sEHIM5O1eFjVyaaWBFuglo6ZIHz1zbh0JIU="
+  },
+  "chunking": {
+    "SIGNATURE_OFFSET": 53,
+    "rule": "For both RSA and HMAC signs: split the sign plaintext into consecutive substrings of <=53 chars; transform each; concatenate the hex outputs in order. 53 is the SIGNATURE_OFFSET constant in the bundle."
+  }
+}

@@ -1,0 +1,7316 @@
+{
+ "device": "TP-Link Archer AX53 v1, web UI AX53v1_1.11.0_2026-01-05 (192.0.2.1)",
+ "generated": "2026-10-03, static analysis of js/archer-ax53/js (468 chunks); no authenticated calls made",
+ "url_template": "POST {scheme}://192.0.2.1/cgi-bin/luci/;stok={stok}/{path}",
+ "body": "application/x-www-form-urlencoded: operation=<op>&<params>; list ops send new=/old= as JSON strings; over HTTP wrapped as sign=<hex>&data=<base64 AES> (see archer-ax53-auth-flow.md)",
+ "response_envelope": "{success:bool, data:any, errorcode|error_code|errorCode, others?}",
+ "client_methods (update-store-DQkZxaRI.js@250617)": {
+  "read": "operation=read",
+  "write": "operation=write + fields",
+  "load": "operation=load",
+  "insert": "operation=insert&new=JSON&index=0",
+  "remove": "operation=remove&key&index",
+  "update": "operation=update&key&new=JSON&old=JSON",
+  "request": "custom operation",
+  "file": "multipart upload"
+ },
+ "pre_login": [
+  {
+   "path": "login?form=keys",
+   "operation": "read",
+   "auth": "none",
+   "purpose": "password RSA pubkey {password:[n,e], mode, username}",
+   "confidence": "VERIFIED-from-JS + observed"
+  },
+  {
+   "path": "login?form=auth",
+   "operation": "read",
+   "auth": "none",
+   "purpose": "sign RSA pubkey + seq {key:[n,e], seq}",
+   "confidence": "VERIFIED-from-JS + observed"
+  },
+  {
+   "path": "login?form=login",
+   "operation": "login",
+   "auth": "AES+RSA-OAEP sign",
+   "purpose": "password=<RSA-PKCS1v15 hex>&confirm=<bool> -> {stok}",
+   "confidence": "VERIFIED-from-JS"
+  },
+  {
+   "path": "device_config?form=config",
+   "operation": "read",
+   "auth": "none (whitelisted)",
+   "purpose": "capability flags incl. certification",
+   "confidence": "VERIFIED-from-JS + observed"
+  },
+  {
+   "path": "login?form=get_deviceInfo",
+   "operation": "read",
+   "auth": "none",
+   "purpose": "{model}",
+   "confidence": "observed"
+  },
+  {
+   "path": "login?form=check_factory_default",
+   "operation": "read",
+   "auth": "none",
+   "purpose": "{is_default}",
+   "confidence": "observed"
+  },
+  {
+   "path": "login?form=get_login_mode",
+   "operation": "read",
+   "auth": "none",
+   "purpose": "{is_remote}",
+   "confidence": "observed"
+  },
+  {
+   "path": "login?form=get_firmware_info",
+   "operation": "read",
+   "auth": "none",
+   "purpose": "returned {} unauthenticated",
+   "confidence": "observed"
+  }
+ ],
+ "priority": [
+  {
+   "capability": "dhcp_reservation_list",
+   "operation": "load",
+   "path": "admin/dhcps?form=reservation",
+   "mutates": false,
+   "request": {
+    "operation": "load"
+   },
+   "response": "data: [{key?, hostname, enable:'on'|'off', ip, mac}], others: {max_rules}",
+   "ui_context": "Advanced > Network > DHCP Server > Address Reservation",
+   "source": "dhcp-Du9udfqN.js (u); model-DSIxX6DP.js (g,h)",
+   "confidence": "VERIFIED-from-JS"
+  },
+  {
+   "capability": "dhcp_reservation_add",
+   "operation": "insert",
+   "path": "admin/dhcps?form=reservation",
+   "mutates": true,
+   "request": {
+    "operation": "insert",
+    "index": 0,
+    "new": "JSON.stringify({hostname, enable:'on'|'off', ip, mac})"
+   },
+   "notes": "UI mapper O(): enable boolean -> 'on'/'off'. Field set (hostname/ip/mac/enable) VERIFIED from model-DSIxX6DP.js g(). MAC format: tplinkrouterc6u PR #170 (verified on AX53) sends uppercase dash-separated 'AA-BB-..-EE-FF' and uses key 'comment' for name - the JS model here uses 'hostname'; confirm in one-shot capture.",
+   "ui_context": "DHCP Server > Address Reservation > Add",
+   "source": "dhcp-Du9udfqN.js (i): e.insert(r,n,{index:0}); update-store tn.insert",
+   "confidence": "VERIFIED-from-JS",
+   "prior_art": "tplinkrouterc6u (AlexandrErohin/TP-Link-Archer-C6U, GPL-3.0) client/c6u.py + sg.py, PR #170"
+  },
+  {
+   "capability": "dhcp_reservation_update",
+   "operation": "update",
+   "path": "admin/dhcps?form=reservation",
+   "mutates": true,
+   "request": {
+    "operation": "update",
+    "key": "<row key>",
+    "new": "JSON({...})",
+    "old": "JSON({...})"
+   },
+   "ui_context": "DHCP Server > Address Reservation > Edit",
+   "source": "dhcp-Du9udfqN.js (a); model-DSIxX6DP.js (j)",
+   "confidence": "VERIFIED-from-JS"
+  },
+  {
+   "capability": "dhcp_reservation_delete",
+   "operation": "remove",
+   "path": "admin/dhcps?form=reservation",
+   "mutates": true,
+   "request": {
+    "operation": "remove",
+    "key": "<row key>",
+    "index": "<row index>"
+   },
+   "notes": "Delete is by key+index from a prior load, not by MAC: MCP must load, find row by MAC, then remove.",
+   "ui_context": "DHCP Server > Address Reservation > Delete",
+   "source": "dhcp-Du9udfqN.js (c)",
+   "confidence": "VERIFIED-from-JS"
+  },
+  {
+   "capability": "dhcp_clients (leases)",
+   "operation": "load",
+   "path": "admin/dhcps?form=client",
+   "mutates": false,
+   "request": {
+    "operation": "load"
+   },
+   "response": "data: [{name, macaddr, ipaddr, leasetime}]",
+   "ui_context": "DHCP Server > DHCP Client List",
+   "source": "dhcp-Du9udfqN.js (o); model-DSIxX6DP.js (w)",
+   "confidence": "VERIFIED-from-JS"
+  },
+  {
+   "capability": "dhcp_server_settings",
+   "operation": "read/write",
+   "path": "admin/dhcps?form=setting",
+   "mutates": "write only",
+   "request": {
+    "operation": "read|write",
+    "enable": "on|off|auto",
+    "ipaddr_start": "",
+    "ipaddr_end": "",
+    "leasetime": "",
+    "gateway": "",
+    "pri_dns": "",
+    "snd_dns": ""
+   },
+   "ui_context": "DHCP Server settings",
+   "source": "dhcp-Du9udfqN.js (t,s); model-DSIxX6DP.js (f,y)",
+   "confidence": "VERIFIED-from-JS"
+  },
+  {
+   "capability": "connected_clients",
+   "operation": "loadDevice",
+   "path": "admin/smart_network?form=game_accelerator",
+   "mutates": false,
+   "request": {
+    "operation": "loadDevice"
+   },
+   "response": "list of {key, deviceType, deviceName, deviceTag ('wired'|'2.4G'|'5G'|'offline'...), isGuest, mac, ip, downloadSpeed, uploadSpeed, onlineTime, remainTime, txrate, rxrate, enableInternet, enablePriority, enableLimit, ...}",
+   "notes": "Network Map / Clients view. operation 'loadSpeed' returns live speeds. UI filters out ip 0.0.0.0 and deviceTag 'offline'.",
+   "ui_context": "Network Map > Clients",
+   "source": "smartNetwork-BsuVBI-s.js (t); useConnectedClients-BIs7ag6H.js@14637 (na, oa)",
+   "confidence": "VERIFIED-from-JS",
+   "prior_art": "tplinkrouterc6u (AlexandrErohin/TP-Link-Archer-C6U, GPL-3.0) client/c6u.py + sg.py, PR #170 (get_status uses the same form)"
+  },
+  {
+   "capability": "client_list_nat (picker)",
+   "operation": "read",
+   "path": "admin/nat?form=client_list",
+   "mutates": false,
+   "request": {
+    "operation": "read"
+   },
+   "ui_context": "client picker in NAT/DMZ forms",
+   "source": "index-Dt75K6xm.js (v)",
+   "confidence": "VERIFIED-from-JS"
+  },
+  {
+   "capability": "router_status_summary",
+   "operation": "read",
+   "path": "admin/status?form=all",
+   "mutates": false,
+   "request": {
+    "operation": "read"
+   },
+   "response": "flat keys incl. lan_ipv4_ipaddr, lan_macaddr, wan_macaddr, wan_ipv4_ipaddr/netmask/gateway/pridns/snddns/conntype/status/uptime, cpu_usage, mem_usage, wireless_2g_*/wireless_5g_*, guest_*, access_devices_* (names seen in bundle; exact set INFERRED)",
+   "ui_context": "Network Map",
+   "source": "status-D_pGh7Kl.js (o)",
+   "confidence": "VERIFIED-from-JS (path) / INFERRED (fields)"
+  },
+  {
+   "capability": "internet_status",
+   "operation": "read",
+   "path": "admin/status?form=internet",
+   "mutates": false,
+   "request": {
+    "operation": "read"
+   },
+   "ui_context": "Network Map > Internet",
+   "source": "status-D_pGh7Kl.js (n)",
+   "confidence": "VERIFIED-from-JS"
+  },
+  {
+   "capability": "wan_ipv4_status",
+   "operation": "read",
+   "path": "admin/network?form=wan_ipv4_status",
+   "mutates": false,
+   "request": {
+    "operation": "read"
+   },
+   "ui_context": "Advanced > Network > Internet",
+   "source": "index-D26yCMJF.js",
+   "confidence": "VERIFIED-from-JS"
+  },
+  {
+   "capability": "lan_ipv4",
+   "operation": "read/write",
+   "path": "admin/network?form=lan_ipv4",
+   "mutates": "write only",
+   "request": {
+    "operation": "read"
+   },
+   "response": "{ipaddr, mask_type, custom_value, ...}",
+   "ui_context": "Advanced > Network > LAN",
+   "source": "lan-mbOsJmwe.js; model-DSIxX6DP.js (_)",
+   "confidence": "VERIFIED-from-JS"
+  },
+  {
+   "capability": "wifi_band_get",
+   "operation": "read_spf",
+   "path": "admin/wireless?form=wireless_2g | wireless_5g | wireless_5g_2 | wireless_6g",
+   "mutates": false,
+   "request": {
+    "operation": "read_spf"
+   },
+   "response": "per-band {enable, ssid, hidden, encryption, psk_key, psk_version, psk_cipher?, hwmode, htmode, channel, current_channel?, txpower, ...} (field names seen in bundle; exact set INFERRED)",
+   "notes": "AX53 is dual-band: use wireless_2g and wireless_5g (deviceConfig.isTriBand=false, supportWifi6E=false).",
+   "ui_context": "Wireless > Wireless Settings",
+   "source": "index-B6wvcXX4.js (x, a, u)",
+   "confidence": "VERIFIED-from-JS (path/op) / INFERRED (fields)"
+  },
+  {
+   "capability": "wifi_band_set (radio on/off, SSID, key)",
+   "operation": "write_spf",
+   "path": "admin/wireless?form=wireless_2g&form=wireless_5g",
+   "mutates": true,
+   "request": {
+    "operation": "write_spf",
+    "...band fields": "e.g. wireless_2g_enable? / enable per form - exact key naming must be captured"
+   },
+   "notes": "UI builds the URL with one form= per supported band and posts operation=write_spf. Radio toggle = set enable on/off for that band. Field naming in the multi-form body is NOT resolvable statically -> capture once.",
+   "ui_context": "Wireless > Save",
+   "source": "index-B6wvcXX4.js (m): r.request(`/admin/wireless?${bands.map(b=>`form=wireless_${b}`).join('&')}`,{operation:'write_spf',...t})",
+   "confidence": "VERIFIED-from-JS (path/op) / INFERRED (body)",
+   "prior_art": "tplinkrouterc6u (AlexandrErohin/TP-Link-Archer-C6U, GPL-3.0) client/c6u.py + sg.py, PR #170 set_wifi()"
+  },
+  {
+   "capability": "guest/multi-ssid",
+   "operation": "load/insert/update/remove",
+   "path": "admin/wireless?form=wireless_multi_2g | _5g",
+   "mutates": "writes",
+   "request": {
+    "operation": "load"
+   },
+   "response": "[{key, enable, ssid, hidden, vlan, encryption, psk_key, server, port, wpa_key}]",
+   "ui_context": "Wireless > Multi-SSID",
+   "source": "WirelessMultiSSIDRepo-Ct8I22Fp.js",
+   "confidence": "VERIFIED-from-JS"
+  },
+  {
+   "capability": "wireless_addition_setting",
+   "operation": "read/write",
+   "path": "admin/wireless?form=wireless_addition_setting",
+   "mutates": "write only",
+   "request": {
+    "operation": "read"
+   },
+   "ui_context": "Wireless > Additional settings",
+   "source": "index-B6wvcXX4.js (s,i)",
+   "confidence": "VERIFIED-from-JS"
+  },
+  {
+   "capability": "reboot_now",
+   "operation": "reboot",
+   "path": "admin/system?form=reboot",
+   "mutates": true,
+   "request": {
+    "operation": "reboot"
+   },
+   "ui_context": "System > Reboot",
+   "source": "reboot-CSaH8ten.js (s): r.request(n,{operation:'reboot'})",
+   "confidence": "VERIFIED-from-JS",
+   "prior_art": "tplinkrouterc6u (AlexandrErohin/TP-Link-Archer-C6U, GPL-3.0) client/c6u.py + sg.py, PR #170 reboot()"
+  },
+  {
+   "capability": "reboot_schedule",
+   "operation": "read/write",
+   "path": "admin/reboot?form=set",
+   "mutates": "write only",
+   "request": {
+    "operation": "read"
+   },
+   "ui_context": "System > Reboot Schedule",
+   "source": "reboot-CSaH8ten.js (e,o)",
+   "confidence": "VERIFIED-from-JS"
+  },
+  {
+   "capability": "port_forward_list",
+   "operation": "load",
+   "path": "admin/nat?form=vs",
+   "mutates": false,
+   "request": {
+    "operation": "load"
+   },
+   "response": "[{key, name, enable, external_port, internal_port, protocol, ipaddr, ...}] (field names seen in NAT model mappers)",
+   "ui_context": "Advanced > NAT Forwarding > Virtual Servers",
+   "source": "index-Dt75K6xm.js (l)",
+   "confidence": "VERIFIED-from-JS (path/op) / INFERRED (fields)",
+   "prior_art": "JithendraNara/tplinkctl (GPL-3.0) uses admin/nat?form=vs; sharozdawa/tplink-archer-mcp (MIT) - built on AX53 1.11.0_2026-01-05 (reference only; browser runtime)"
+  },
+  {
+   "capability": "port_forward_add/update/delete",
+   "operation": "insert/update/remove",
+   "path": "admin/nat?form=vs",
+   "mutates": true,
+   "request": {
+    "operation": "insert",
+    "index": 0,
+    "new": "JSON({name, enable, external_port, internal_port, protocol, ipaddr})"
+   },
+   "ui_context": "Virtual Servers > Add/Edit/Delete",
+   "source": "index-Dt75K6xm.js (y,k,S)",
+   "confidence": "VERIFIED-from-JS (ops) / INFERRED (fields)"
+  },
+  {
+   "capability": "port_triggering",
+   "operation": "load/insert/update/remove",
+   "path": "admin/nat?form=pt",
+   "mutates": "writes",
+   "request": {
+    "operation": "load"
+   },
+   "ui_context": "NAT Forwarding > Port Triggering",
+   "source": "index-Dt75K6xm.js",
+   "confidence": "VERIFIED-from-JS"
+  },
+  {
+   "capability": "dmz",
+   "operation": "read/write",
+   "path": "admin/nat?form=dmz",
+   "mutates": "write only",
+   "request": {
+    "operation": "read"
+   },
+   "ui_context": "NAT Forwarding > DMZ",
+   "source": "index-Dt75K6xm.js (m,p)",
+   "confidence": "VERIFIED-from-JS"
+  },
+  {
+   "capability": "firmware_info",
+   "operation": "read",
+   "path": "admin/firmware?form=upgrade",
+   "mutates": false,
+   "request": {
+    "operation": "read"
+   },
+   "response": "includes firmware/hardware version (bundle references firmware_version / hardware_version; INFERRED field names)",
+   "ui_context": "System > Firmware Update",
+   "source": "update-store-DQkZxaRI.js@598611 (md)",
+   "confidence": "VERIFIED-from-JS (path) / INFERRED (fields)"
+  },
+  {
+   "capability": "firmware_online_check",
+   "operation": "fwup_check",
+   "path": "admin/firmware?form=upgrade",
+   "mutates": false,
+   "request": {
+    "operation": "fwup_check"
+   },
+   "source": "update-store-DQkZxaRI.js (gd)",
+   "confidence": "VERIFIED-from-JS"
+  },
+  {
+   "capability": "firmware_auto_upgrade",
+   "operation": "read/write",
+   "path": "admin/firmware?form=auto_upgrade",
+   "mutates": "write only",
+   "request": {
+    "operation": "read"
+   },
+   "notes": "Owner policy decision; read-only in MCP v1.",
+   "source": "update-store-DQkZxaRI.js",
+   "confidence": "VERIFIED-from-JS"
+  },
+  {
+   "capability": "mesh_nodes",
+   "operation": "read",
+   "path": "admin/easymesh_network?form=get_mesh_device_list_all",
+   "mutates": false,
+   "request": {
+    "operation": "read"
+   },
+   "source": "easymesh-Co9DAaFu.js",
+   "confidence": "VERIFIED-from-JS"
+  },
+  {
+   "capability": "logout",
+   "operation": "user_action? (request with no data)",
+   "path": "admin/system?form=logout",
+   "mutates": "session",
+   "request": {},
+   "notes": "index-Cd9lOeyT.js@392: r.request('/admin/system?form=logout', undefined, ...) - body empty apart from interceptor-added fields.",
+   "source": "index-Cd9lOeyT.js",
+   "confidence": "VERIFIED-from-JS"
+  }
+ ],
+ "all_calls": [
+  {
+   "path": "accessibility?form=accessibility_state",
+   "operation": "read",
+   "params_hint": [
+    "hide_animation",
+    "increase_contrast"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-D26yCMJF.js"
+   ],
+   "evidence": [
+    "index-D26yCMJF.js@7766"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "accessibility?form=accessibility_state",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "index-D26yCMJF.js"
+   ],
+   "evidence": [
+    "index-D26yCMJF.js@7998"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/access_control?form=black_devices",
+   "operation": "block",
+   "params_hint": [
+    "data",
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "AccessDeviceList.model-wrV34TPA.js"
+   ],
+   "evidence": [
+    "AccessDeviceList.model-wrV34TPA.js@610"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/access_control?form=black_devices",
+   "operation": "load",
+   "params_hint": [
+    "host",
+    "ipaddr",
+    "key",
+    "mac",
+    "name"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "AccessDeviceList.model-wrV34TPA.js"
+   ],
+   "evidence": [
+    "AccessDeviceList.model-wrV34TPA.js@2349"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/access_control?form=black_list",
+   "operation": "insert",
+   "params_hint": [
+    "data",
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "AccessDeviceList.model-wrV34TPA.js"
+   ],
+   "evidence": [
+    "AccessDeviceList.model-wrV34TPA.js@545"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/access_control?form=black_list",
+   "operation": "load",
+   "params_hint": [
+    "host",
+    "key",
+    "mac",
+    "name"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "AccessDeviceList.model-wrV34TPA.js"
+   ],
+   "evidence": [
+    "AccessDeviceList.model-wrV34TPA.js@1412"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/access_control?form=black_list",
+   "operation": "remove",
+   "params_hint": [
+    "conn_type",
+    "host",
+    "ipaddr",
+    "key",
+    "mac",
+    "name"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "AccessDeviceList.model-wrV34TPA.js"
+   ],
+   "evidence": [
+    "AccessDeviceList.model-wrV34TPA.js@1741"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/access_control?form=enable",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "AccessDeviceList.model-wrV34TPA.js"
+   ],
+   "evidence": [
+    "AccessDeviceList.model-wrV34TPA.js@377"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/access_control?form=enable",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "AccessDeviceList.model-wrV34TPA.js"
+   ],
+   "evidence": [
+    "AccessDeviceList.model-wrV34TPA.js@426"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/access_control?form=mode",
+   "operation": "read",
+   "params_hint": [
+    "access_mode"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "AccessDeviceList.model-wrV34TPA.js"
+   ],
+   "evidence": [
+    "AccessDeviceList.model-wrV34TPA.js@2587"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/access_control?form=mode",
+   "operation": "write",
+   "params_hint": [
+    "access_mode"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "AccessDeviceList.model-wrV34TPA.js"
+   ],
+   "evidence": [
+    "AccessDeviceList.model-wrV34TPA.js@2681"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/access_control?form=white_devices",
+   "operation": "access",
+   "params_hint": [
+    "data"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "AccessDeviceList.model-wrV34TPA.js"
+   ],
+   "evidence": [
+    "AccessDeviceList.model-wrV34TPA.js@2079"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/access_control?form=white_devices",
+   "operation": "load",
+   "params_hint": [
+    "host",
+    "ipaddr",
+    "mac",
+    "name"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "AccessDeviceList.model-wrV34TPA.js"
+   ],
+   "evidence": [
+    "AccessDeviceList.model-wrV34TPA.js@2315"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/access_control?form=white_list",
+   "operation": "insert",
+   "params_hint": [
+    "data",
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "AccessDeviceList.model-wrV34TPA.js"
+   ],
+   "evidence": [
+    "AccessDeviceList.model-wrV34TPA.js@480"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/access_control?form=white_list",
+   "operation": "load",
+   "params_hint": [
+    "host",
+    "key",
+    "mac",
+    "name"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "AccessDeviceList.model-wrV34TPA.js"
+   ],
+   "evidence": [
+    "AccessDeviceList.model-wrV34TPA.js@1396"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/access_control?form=white_list",
+   "operation": "remove",
+   "params_hint": [
+    "key",
+    "name"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "AccessDeviceList.model-wrV34TPA.js"
+   ],
+   "evidence": [
+    "AccessDeviceList.model-wrV34TPA.js@1660"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/administration?form=account",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "index-0l-lvJYB.js"
+   ],
+   "evidence": [
+    "index-0l-lvJYB.js@4800"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/administration?form=account",
+   "operation": "write",
+   "params_hint": [
+    "cfm_pwd",
+    "label",
+    "new_pwd",
+    "old_pwd",
+    "username"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-0l-lvJYB.js"
+   ],
+   "evidence": [
+    "index-0l-lvJYB.js@2929"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/administration?form=agileconfig",
+   "operation": "check",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "agile-C6uqAl2l.js"
+   ],
+   "evidence": [
+    "agile-C6uqAl2l.js@397"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/administration?form=agileconfig",
+   "operation": "restore",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "agile-C6uqAl2l.js"
+   ],
+   "evidence": [
+    "agile-C6uqAl2l.js@322"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/administration?form=agileconfig",
+   "operation": "save",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "agile-C6uqAl2l.js"
+   ],
+   "evidence": [
+    "agile-C6uqAl2l.js@234"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/administration?form=https",
+   "operation": "read",
+   "params_hint": [
+    "enable",
+    "event",
+    "https_enable",
+    "loading",
+    "mode"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-0l-lvJYB.js"
+   ],
+   "evidence": [
+    "index-0l-lvJYB.js@13837"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/administration?form=https",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "index-0l-lvJYB.js"
+   ],
+   "evidence": [
+    "index-0l-lvJYB.js@2397"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/administration?form=local",
+   "operation": "insert",
+   "params_hint": [
+    "description",
+    "enable",
+    "mac"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-0l-lvJYB.js"
+   ],
+   "evidence": [
+    "index-0l-lvJYB.js@11303"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/administration?form=local",
+   "operation": "load",
+   "params_hint": [
+    "class",
+    "label",
+    "value"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-0l-lvJYB.js"
+   ],
+   "evidence": [
+    "index-0l-lvJYB.js@10171"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/administration?form=local",
+   "operation": "remove",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-0l-lvJYB.js"
+   ],
+   "evidence": [
+    "index-0l-lvJYB.js@11742"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/administration?form=mode",
+   "operation": "read",
+   "params_hint": [
+    "enable",
+    "event",
+    "https_enable",
+    "loading",
+    "mode"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-0l-lvJYB.js"
+   ],
+   "evidence": [
+    "index-0l-lvJYB.js@13866"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/administration?form=mode",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "index-0l-lvJYB.js"
+   ],
+   "evidence": [
+    "index-0l-lvJYB.js@2453"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/administration?form=recovery",
+   "operation": "read",
+   "params_hint": [
+    "auth",
+    "enable",
+    "enable_auth",
+    "from",
+    "password",
+    "smtp",
+    "to",
+    "username"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-0l-lvJYB.js"
+   ],
+   "evidence": [
+    "index-0l-lvJYB.js@6554"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/administration?form=recovery",
+   "operation": "write",
+   "params_hint": [
+    "__name",
+    "class",
+    "expose",
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-0l-lvJYB.js"
+   ],
+   "evidence": [
+    "index-0l-lvJYB.js@6928"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/administration?form=remote",
+   "operation": "read",
+   "params_hint": [
+    "enable",
+    "ip",
+    "managers",
+    "port"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-0l-lvJYB.js"
+   ],
+   "evidence": [
+    "index-0l-lvJYB.js@15757"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/administration?form=remote",
+   "operation": "write",
+   "params_hint": [
+    "__name",
+    "expose",
+    "label",
+    "value"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-0l-lvJYB.js"
+   ],
+   "evidence": [
+    "index-0l-lvJYB.js@16137"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/administration?form=superadminconfig",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "agile-C6uqAl2l.js"
+   ],
+   "evidence": [
+    "agile-C6uqAl2l.js@121"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/administration?form=superadminconfig",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "agile-C6uqAl2l.js"
+   ],
+   "evidence": [
+    "agile-C6uqAl2l.js@152"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/administration?form=usersetting",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "index-D26yCMJF.js"
+   ],
+   "evidence": [
+    "index-D26yCMJF.js@15140"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/administration?form=usersetting",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "index-D26yCMJF.js"
+   ],
+   "evidence": [
+    "index-D26yCMJF.js@15240"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/afc?form=settings",
+   "operation": "read",
+   "params_hint": [
+    "device_mac"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "WirelessConnectModal.vue_vue_type_script_setup_true_lang-BOBUg00H.js"
+   ],
+   "evidence": [
+    "WirelessConnectModal.vue_vue_type_script_setup_true_lang-BOBUg00H.js@11612"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/afc?form=settings",
+   "operation": "update_channel_list",
+   "params_hint": [
+    "__name",
+    "band",
+    "enable",
+    "form",
+    "props"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "WirelessConnectModal.vue_vue_type_script_setup_true_lang-BOBUg00H.js"
+   ],
+   "evidence": [
+    "WirelessConnectModal.vue_vue_type_script_setup_true_lang-BOBUg00H.js@11793",
+    "WirelessConnectModal.vue_vue_type_script_setup_true_lang-BOBUg00H.js@11993"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/afc?form=settings",
+   "operation": "write",
+   "params_hint": [
+    "enable"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "WirelessConnectModal.vue_vue_type_script_setup_true_lang-BOBUg00H.js"
+   ],
+   "evidence": [
+    "WirelessConnectModal.vue_vue_type_script_setup_true_lang-BOBUg00H.js@11907"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/cert_mgmt?form=export",
+   "operation": "(file)",
+   "params_hint": [
+    "data",
+    "label",
+    "value"
+   ],
+   "mutates": null,
+   "ui_context": [
+    "index-0l-lvJYB.js"
+   ],
+   "evidence": [
+    "index-0l-lvJYB.js@10053"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/cloud_account?form=auto_update_remind",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "update-store-DQkZxaRI.js"
+   ],
+   "evidence": [
+    "update-store-DQkZxaRI.js@598314"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/cloud_account?form=check_device",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "update-store-DQkZxaRI.js"
+   ],
+   "evidence": [
+    "update-store-DQkZxaRI.js@597800"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/cloud_account?form=check_internet",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "update-store-DQkZxaRI.js"
+   ],
+   "evidence": [
+    "update-store-DQkZxaRI.js@597685"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/cloud_account?form=check_upgrade",
+   "operation": "read",
+   "params_hint": [
+    "init"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "update-store-DQkZxaRI.js"
+   ],
+   "evidence": [
+    "update-store-DQkZxaRI.js@600117"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/cloud_account?form=cloud_bind_status",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "quickSetupStep-DiY6l2DG.js"
+   ],
+   "evidence": [
+    "quickSetupStep-DiY6l2DG.js@1153"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/cloud_account?form=cloud_bind_status",
+   "operation": "(request)",
+   "params_hint": [],
+   "mutates": null,
+   "ui_context": [
+    "tpLinkCloud-Bh1gMjB_.js"
+   ],
+   "evidence": [
+    "tpLinkCloud-Bh1gMjB_.js@260"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/cloud_account?form=cloud_unbind",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "tpLinkCloud-Bh1gMjB_.js"
+   ],
+   "evidence": [
+    "tpLinkCloud-Bh1gMjB_.js@615"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/cloud_account?form=cloud_upgrade",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "update-store-DQkZxaRI.js"
+   ],
+   "evidence": [
+    "update-store-DQkZxaRI.js@597510"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/cloud_account?form=cloud_upgrade",
+   "operation": "upgrade",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "update-store-DQkZxaRI.js"
+   ],
+   "evidence": [
+    "update-store-DQkZxaRI.js@597585"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/cloud_account?form=detect_upgrade_status",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "update-store-DQkZxaRI.js"
+   ],
+   "evidence": [
+    "update-store-DQkZxaRI.js@597913"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/cloud_account?form=get_deviceInfo",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "update-store-DQkZxaRI.js"
+   ],
+   "evidence": [
+    "update-store-DQkZxaRI.js@598035"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/cloud_account?form=get_token",
+   "operation": "read",
+   "params_hint": [
+    "token"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "tpLinkCloud-Bh1gMjB_.js"
+   ],
+   "evidence": [
+    "tpLinkCloud-Bh1gMjB_.js@67"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/cloud_account?form=remind",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "update-store-DQkZxaRI.js"
+   ],
+   "evidence": [
+    "update-store-DQkZxaRI.js@598188"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/cloud_account?form=remind",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "update-store-DQkZxaRI.js"
+   ],
+   "evidence": [
+    "update-store-DQkZxaRI.js@598242"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/cloud_account?form=user_login",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "tpLinkCloud-Bh1gMjB_.js"
+   ],
+   "evidence": [
+    "tpLinkCloud-Bh1gMjB_.js@454"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/ddns?form=dyndns",
+   "operation": "login",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "ddns-Ban1f6SM.js"
+   ],
+   "evidence": [
+    "ddns-Ban1f6SM.js@1001"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/ddns?form=dyndns",
+   "operation": "logout",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "ddns-Ban1f6SM.js"
+   ],
+   "evidence": [
+    "ddns-Ban1f6SM.js@1079"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/ddns?form=dyndns",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "ddns-Ban1f6SM.js"
+   ],
+   "evidence": [
+    "ddns-Ban1f6SM.js@879"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/ddns?form=dyndns",
+   "operation": "refresh",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "ddns-Ban1f6SM.js"
+   ],
+   "evidence": [
+    "ddns-Ban1f6SM.js@909"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/ddns?form=noip",
+   "operation": "login",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "ddns-Ban1f6SM.js"
+   ],
+   "evidence": [
+    "ddns-Ban1f6SM.js@295"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/ddns?form=noip",
+   "operation": "logout",
+   "params_hint": [
+    "domain"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "ddns-Ban1f6SM.js"
+   ],
+   "evidence": [
+    "ddns-Ban1f6SM.js@373"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/ddns?form=noip",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "ddns-Ban1f6SM.js"
+   ],
+   "evidence": [
+    "ddns-Ban1f6SM.js@173"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/ddns?form=noip",
+   "operation": "refresh",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "ddns-Ban1f6SM.js"
+   ],
+   "evidence": [
+    "ddns-Ban1f6SM.js@203"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/ddns?form=provider",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "ddns-Ban1f6SM.js"
+   ],
+   "evidence": [
+    "ddns-Ban1f6SM.js@67"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/ddns?form=tplink",
+   "operation": "bind",
+   "params_hint": [
+    "domain"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "ddns-Ban1f6SM.js"
+   ],
+   "evidence": [
+    "ddns-Ban1f6SM.js@680"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/ddns?form=tplink",
+   "operation": "insert",
+   "params_hint": [
+    "domain"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "ddns-Ban1f6SM.js"
+   ],
+   "evidence": [
+    "ddns-Ban1f6SM.js@512"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/ddns?form=tplink",
+   "operation": "load",
+   "params_hint": [
+    "domain"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "ddns-Ban1f6SM.js"
+   ],
+   "evidence": [
+    "ddns-Ban1f6SM.js@481"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/ddns?form=tplink",
+   "operation": "remove",
+   "params_hint": [
+    "domain"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "ddns-Ban1f6SM.js"
+   ],
+   "evidence": [
+    "ddns-Ban1f6SM.js@596"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/ddns?form=tplink",
+   "operation": "unbind",
+   "params_hint": [
+    "domain"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "ddns-Ban1f6SM.js"
+   ],
+   "evidence": [
+    "ddns-Ban1f6SM.js@762"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/dhcps?form=client",
+   "operation": "load",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "dhcp-Du9udfqN.js"
+   ],
+   "evidence": [
+    "dhcp-Du9udfqN.js@219"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/dhcps?form=reservation",
+   "operation": "insert",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "dhcp-Du9udfqN.js"
+   ],
+   "evidence": [
+    "dhcp-Du9udfqN.js@305"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/dhcps?form=reservation",
+   "operation": "load",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "dhcp-Du9udfqN.js"
+   ],
+   "evidence": [
+    "dhcp-Du9udfqN.js@274"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/dhcps?form=reservation",
+   "operation": "remove",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "dhcp-Du9udfqN.js"
+   ],
+   "evidence": [
+    "dhcp-Du9udfqN.js@441"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/dhcps?form=reservation",
+   "operation": "update",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "dhcp-Du9udfqN.js"
+   ],
+   "evidence": [
+    "dhcp-Du9udfqN.js@374"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/dhcps?form=setting",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "dhcp-Du9udfqN.js"
+   ],
+   "evidence": [
+    "dhcp-Du9udfqN.js@137"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/dhcps?form=setting",
+   "operation": "write",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "dhcp-Du9udfqN.js"
+   ],
+   "evidence": [
+    "dhcp-Du9udfqN.js@186"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/diag?form=diag",
+   "operation": "continue",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "index-q2cZ2zK2.js"
+   ],
+   "evidence": [
+    "index-q2cZ2zK2.js@492"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/diag?form=diag",
+   "operation": "start",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "index-q2cZ2zK2.js"
+   ],
+   "evidence": [
+    "index-q2cZ2zK2.js@413"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/diag?form=diag",
+   "operation": "stop",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "index-q2cZ2zK2.js"
+   ],
+   "evidence": [
+    "index-q2cZ2zK2.js@574"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/easymesh?form=easymesh_enable",
+   "operation": "read",
+   "params_hint": [
+    "enable"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "easymesh-Co9DAaFu.js"
+   ],
+   "evidence": [
+    "easymesh-Co9DAaFu.js@114"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/easymesh?form=easymesh_enable",
+   "operation": "write",
+   "params_hint": [
+    "enable"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "easymesh-Co9DAaFu.js"
+   ],
+   "evidence": [
+    "easymesh-Co9DAaFu.js@145"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/easymesh?form=get_status",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "easymesh-Co9DAaFu.js"
+   ],
+   "evidence": [
+    "easymesh-Co9DAaFu.js@2093"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/easymesh?form=search_slave",
+   "operation": "check",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "easymesh-Co9DAaFu.js"
+   ],
+   "evidence": [
+    "easymesh-Co9DAaFu.js@1644"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/easymesh?form=search_slave",
+   "operation": "start",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "easymesh-Co9DAaFu.js"
+   ],
+   "evidence": [
+    "easymesh-Co9DAaFu.js@1467"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/easymesh?form=search_slave",
+   "operation": "stop",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "easymesh-Co9DAaFu.js"
+   ],
+   "evidence": [
+    "easymesh-Co9DAaFu.js@1556"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/easymesh?form=start_mesh_status_check",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "easymesh-Co9DAaFu.js"
+   ],
+   "evidence": [
+    "easymesh-Co9DAaFu.js@2191"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/easymesh_network?form=ap_avoidance_enable_status",
+   "operation": "read",
+   "params_hint": [
+    "agent_mac",
+    "bind",
+    "client_mac"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "easymesh-Co9DAaFu.js"
+   ],
+   "evidence": [
+    "easymesh-Co9DAaFu.js@1733"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/easymesh_network?form=available_mesh_device_manage",
+   "operation": "add_onboarding",
+   "params_hint": [
+    "mac"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "easymesh-Co9DAaFu.js"
+   ],
+   "evidence": [
+    "easymesh-Co9DAaFu.js@901"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/easymesh_network?form=available_mesh_device_manage",
+   "operation": "bind_to_current_ap",
+   "params_hint": [
+    "agent_mac",
+    "bind",
+    "change_satellite",
+    "client_mac"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "easymesh-Co9DAaFu.js"
+   ],
+   "evidence": [
+    "easymesh-Co9DAaFu.js@1860"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/easymesh_network?form=available_mesh_device_manage",
+   "operation": "link",
+   "params_hint": [
+    "mac"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "easymesh-Co9DAaFu.js"
+   ],
+   "evidence": [
+    "easymesh-Co9DAaFu.js@806"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/easymesh_network?form=available_mesh_device_manage",
+   "operation": "reboot",
+   "params_hint": [
+    "mac"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "easymesh-Co9DAaFu.js"
+   ],
+   "evidence": [
+    "easymesh-Co9DAaFu.js@612"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/easymesh_network?form=available_mesh_device_manage",
+   "operation": "unlink",
+   "params_hint": [
+    "mac"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "easymesh-Co9DAaFu.js"
+   ],
+   "evidence": [
+    "easymesh-Co9DAaFu.js@709"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/easymesh_network?form=change_satellite",
+   "operation": "write",
+   "params_hint": [
+    "change_satellite"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "easymesh-Co9DAaFu.js"
+   ],
+   "evidence": [
+    "easymesh-Co9DAaFu.js@1958"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/easymesh_network?form=get_mesh_device_list_all",
+   "operation": "read",
+   "params_hint": [
+    "mac"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "easymesh-Co9DAaFu.js"
+   ],
+   "evidence": [
+    "easymesh-Co9DAaFu.js@304",
+    "easymesh-Co9DAaFu.js@424"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/easymesh_network?form=get_mesh_topo",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "status-D_pGh7Kl.js"
+   ],
+   "evidence": [
+    "status-D_pGh7Kl.js@552"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/easymesh_network?form=mesh_sclient_detail",
+   "operation": "read",
+   "params_hint": [
+    "location",
+    "mac",
+    "name",
+    "traffic_separation"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "easymesh-Co9DAaFu.js"
+   ],
+   "evidence": [
+    "easymesh-Co9DAaFu.js@1064"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/easymesh_network?form=mesh_sclient_detail",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "easymesh-Co9DAaFu.js"
+   ],
+   "evidence": [
+    "easymesh-Co9DAaFu.js@1373"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/easymesh_network?form=mesh_sclient_list_all",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "easymesh-Co9DAaFu.js"
+   ],
+   "evidence": [
+    "easymesh-Co9DAaFu.js@187"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/easymesh_network?form=ts_ssid_check",
+   "operation": "check",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "easymesh-Co9DAaFu.js"
+   ],
+   "evidence": [
+    "easymesh-Co9DAaFu.js@2303"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/easymesh_network?form=ts_ssid_check",
+   "operation": "status",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "easymesh-Co9DAaFu.js"
+   ],
+   "evidence": [
+    "easymesh-Co9DAaFu.js@2439"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/eco_mode?form=settings",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "ecoMode-BuOsHpJi.js"
+   ],
+   "evidence": [
+    "ecoMode-BuOsHpJi.js@107"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/eco_mode?form=settings",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "ecoMode-BuOsHpJi.js"
+   ],
+   "evidence": [
+    "ecoMode-BuOsHpJi.js@138"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/ffs?form=config",
+   "operation": "read",
+   "params_hint": [
+    "country",
+    "enable"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-B6wvcXX4.js"
+   ],
+   "evidence": [
+    "index-B6wvcXX4.js@996"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/ffs?form=config",
+   "operation": "write",
+   "params_hint": [
+    "country",
+    "enable"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-B6wvcXX4.js"
+   ],
+   "evidence": [
+    "index-B6wvcXX4.js@1027"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/firmware?form=auto_upgrade",
+   "operation": "read",
+   "params_hint": [
+    "upgraded"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "update-store-DQkZxaRI.js"
+   ],
+   "evidence": [
+    "update-store-DQkZxaRI.js@598472"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/firmware?form=auto_upgrade",
+   "operation": "write",
+   "params_hint": [
+    "upgraded"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "update-store-DQkZxaRI.js"
+   ],
+   "evidence": [
+    "update-store-DQkZxaRI.js@598506"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/firmware?form=config",
+   "operation": "check",
+   "params_hint": [
+    "all"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "update-store-DQkZxaRI.js"
+   ],
+   "evidence": [
+    "update-store-DQkZxaRI.js@599394"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/firmware?form=config",
+   "operation": "factory",
+   "params_hint": [
+    "all"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "update-store-DQkZxaRI.js"
+   ],
+   "evidence": [
+    "update-store-DQkZxaRI.js@599486",
+    "update-store-DQkZxaRI.js@599624"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/firmware?form=config",
+   "operation": "read",
+   "params_hint": [
+    "all"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "update-store-DQkZxaRI.js"
+   ],
+   "evidence": [
+    "update-store-DQkZxaRI.js@599341"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/firmware?form=config_multipart",
+   "operation": "(file)",
+   "params_hint": [
+    "update_number"
+   ],
+   "mutates": null,
+   "ui_context": [
+    "update-store-DQkZxaRI.js"
+   ],
+   "evidence": [
+    "update-store-DQkZxaRI.js@599792",
+    "update-store-DQkZxaRI.js@599936"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/firmware?form=save_upgrade",
+   "operation": "slave_upgrade_firmware",
+   "params_hint": [
+    "ip",
+    "mac"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "update-store-DQkZxaRI.js"
+   ],
+   "evidence": [
+    "update-store-DQkZxaRI.js@598929"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/firmware?form=slave_cmd",
+   "operation": "slave_get_info",
+   "params_hint": [
+    "ip",
+    "mac",
+    "model",
+    "name",
+    "type",
+    "version"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "update-store-DQkZxaRI.js"
+   ],
+   "evidence": [
+    "update-store-DQkZxaRI.js@600423"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/firmware?form=slave_cmd",
+   "operation": "slave_get_upgrade_info",
+   "params_hint": [
+    "ip",
+    "mac"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "update-store-DQkZxaRI.js"
+   ],
+   "evidence": [
+    "update-store-DQkZxaRI.js@599198"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/firmware?form=slave_cmd",
+   "operation": "slave_upgrade_firmware",
+   "params_hint": [
+    "ip",
+    "mac"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "update-store-DQkZxaRI.js"
+   ],
+   "evidence": [
+    "update-store-DQkZxaRI.js@599091"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/firmware?form=upgrade",
+   "operation": "fwup_check",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "update-store-DQkZxaRI.js"
+   ],
+   "evidence": [
+    "update-store-DQkZxaRI.js@598735"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/firmware?form=upgrade",
+   "operation": "read",
+   "params_hint": [
+    "upgraded"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "update-store-DQkZxaRI.js"
+   ],
+   "evidence": [
+    "update-store-DQkZxaRI.js@598582"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/firmware?form=upgrade",
+   "operation": "write",
+   "params_hint": [
+    "upgraded"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "update-store-DQkZxaRI.js"
+   ],
+   "evidence": [
+    "update-store-DQkZxaRI.js@598652"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/imb?form=arp_list",
+   "operation": "bind",
+   "params_hint": [
+    "data",
+    "enable",
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-B9Fd5ZZp.js"
+   ],
+   "evidence": [
+    "index-B9Fd5ZZp.js@1538"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/imb?form=arp_list",
+   "operation": "load",
+   "params_hint": [
+    "data",
+    "enable",
+    "key"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-B9Fd5ZZp.js"
+   ],
+   "evidence": [
+    "index-B9Fd5ZZp.js@1449"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/imb?form=arp_list",
+   "operation": "remove",
+   "params_hint": [
+    "data",
+    "key",
+    "others"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-B9Fd5ZZp.js"
+   ],
+   "evidence": [
+    "index-B9Fd5ZZp.js@1704"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/imb?form=bind_list",
+   "operation": "insert",
+   "params_hint": [
+    "client_type",
+    "enable",
+    "ip",
+    "loading",
+    "mac",
+    "name"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-B9Fd5ZZp.js"
+   ],
+   "evidence": [
+    "index-B9Fd5ZZp.js@2048"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/imb?form=bind_list",
+   "operation": "load",
+   "params_hint": [
+    "data",
+    "key"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-B9Fd5ZZp.js"
+   ],
+   "evidence": [
+    "index-B9Fd5ZZp.js@1836"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/imb?form=bind_list",
+   "operation": "remove",
+   "params_hint": [
+    "client_type",
+    "ip",
+    "key",
+    "mac",
+    "name"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-B9Fd5ZZp.js"
+   ],
+   "evidence": [
+    "index-B9Fd5ZZp.js@1952"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/imb?form=client_list",
+   "operation": "read",
+   "params_hint": [
+    "__name",
+    "client_type",
+    "enable",
+    "ip",
+    "loading",
+    "mac",
+    "name"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-B9Fd5ZZp.js"
+   ],
+   "evidence": [
+    "index-B9Fd5ZZp.js@2087"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/imb?form=setting",
+   "operation": "read",
+   "params_hint": [
+    "enable",
+    "ip",
+    "ipaddr",
+    "key",
+    "mac",
+    "name"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-B9Fd5ZZp.js"
+   ],
+   "evidence": [
+    "index-B9Fd5ZZp.js@1097"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/imb?form=setting",
+   "operation": "write",
+   "params_hint": [
+    "enable",
+    "ip",
+    "ipaddr",
+    "key",
+    "loading",
+    "mac",
+    "name"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-B9Fd5ZZp.js"
+   ],
+   "evidence": [
+    "index-B9Fd5ZZp.js@1188"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/iot_security?form=enable",
+   "operation": "read",
+   "params_hint": [
+    "data",
+    "key"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-IgkBpLqv.js"
+   ],
+   "evidence": [
+    "index-IgkBpLqv.js@591"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/iot_security?form=enable",
+   "operation": "write",
+   "params_hint": [
+    "data",
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-IgkBpLqv.js"
+   ],
+   "evidence": [
+    "index-IgkBpLqv.js@654"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/iot_security?form=isolated_devices_iot",
+   "operation": "load",
+   "params_hint": [
+    "data",
+    "iot_device",
+    "iot_network_status",
+    "status"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-IgkBpLqv.js"
+   ],
+   "evidence": [
+    "index-IgkBpLqv.js@1055"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/iot_security?form=isolated_devices_main",
+   "operation": "load",
+   "params_hint": [
+    "class",
+    "data",
+    "default",
+    "keypath"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-IgkBpLqv.js"
+   ],
+   "evidence": [
+    "index-IgkBpLqv.js@1235"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/iot_security?form=isolated_list",
+   "operation": "load",
+   "params_hint": [
+    "mac"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-IgkBpLqv.js"
+   ],
+   "evidence": [
+    "index-IgkBpLqv.js@776"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/iot_security?form=isolated_list",
+   "operation": "remove",
+   "params_hint": [
+    "data",
+    "mac"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-IgkBpLqv.js"
+   ],
+   "evidence": [
+    "index-IgkBpLqv.js@853"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/iot_security?form=isolated_list",
+   "operation": "write",
+   "params_hint": [
+    "data",
+    "iot_device",
+    "iot_network_status",
+    "mac"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-IgkBpLqv.js"
+   ],
+   "evidence": [
+    "index-IgkBpLqv.js@939"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/iptv?form=setting",
+   "operation": "change",
+   "params_hint": [
+    "isp"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "iptv-CdyeHCtO.js"
+   ],
+   "evidence": [
+    "iptv-CdyeHCtO.js@253"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/iptv?form=setting",
+   "operation": "read",
+   "params_hint": [
+    "isp",
+    "port"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "iptv-CdyeHCtO.js"
+   ],
+   "evidence": [
+    "iptv-CdyeHCtO.js@103"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/iptv?form=setting",
+   "operation": "write",
+   "params_hint": [
+    "isp"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "iptv-CdyeHCtO.js"
+   ],
+   "evidence": [
+    "iptv-CdyeHCtO.js@199"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/iptv?form=udp_proxy_setting",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "iptv-CdyeHCtO.js"
+   ],
+   "evidence": [
+    "iptv-CdyeHCtO.js@333"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/iptv?form=udp_proxy_setting",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "iptv-CdyeHCtO.js"
+   ],
+   "evidence": [
+    "iptv-CdyeHCtO.js@417"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/l2tpoveripsec?form=config",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "model-DmWt0_E8.js"
+   ],
+   "evidence": [
+    "model-DmWt0_E8.js@1528"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/ledgeneral?form=setting",
+   "operation": "read",
+   "params_hint": [
+    "enable"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-dIgEvj8m.js"
+   ],
+   "evidence": [
+    "index-dIgEvj8m.js@832"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/ledgeneral?form=setting",
+   "operation": "write",
+   "params_hint": [
+    "enable"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-dIgEvj8m.js"
+   ],
+   "evidence": [
+    "index-dIgEvj8m.js@923"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/ledpm?form=setting",
+   "operation": "read",
+   "params_hint": [
+    "enable",
+    "time_end",
+    "time_start"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-dIgEvj8m.js"
+   ],
+   "evidence": [
+    "index-dIgEvj8m.js@982"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/ledpm?form=setting",
+   "operation": "write",
+   "params_hint": [
+    "__name",
+    "emit",
+    "emits",
+    "props",
+    "status",
+    "update"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-dIgEvj8m.js"
+   ],
+   "evidence": [
+    "index-dIgEvj8m.js@1266"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/nat?form=alg",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "index-Dt75K6xm.js"
+   ],
+   "evidence": [
+    "index-Dt75K6xm.js@274"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/nat?form=alg",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "index-Dt75K6xm.js"
+   ],
+   "evidence": [
+    "index-Dt75K6xm.js@241"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/nat?form=client_list",
+   "operation": "read",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-Dt75K6xm.js"
+   ],
+   "evidence": [
+    "index-Dt75K6xm.js@554"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/nat?form=client_list_v6",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "index-Dt75K6xm.js"
+   ],
+   "evidence": [
+    "index-Dt75K6xm.js@1464"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/nat?form=dmz",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "index-Dt75K6xm.js"
+   ],
+   "evidence": [
+    "index-Dt75K6xm.js@454"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/nat?form=dmz",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "index-Dt75K6xm.js"
+   ],
+   "evidence": [
+    "index-Dt75K6xm.js@503"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/nat?form=fr6",
+   "operation": "insert",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-Dt75K6xm.js"
+   ],
+   "evidence": [
+    "index-Dt75K6xm.js@1244"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/nat?form=fr6",
+   "operation": "load",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-Dt75K6xm.js"
+   ],
+   "evidence": [
+    "index-Dt75K6xm.js@1207"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/nat?form=fr6",
+   "operation": "remove",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-Dt75K6xm.js"
+   ],
+   "evidence": [
+    "index-Dt75K6xm.js@1392"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/nat?form=fr6",
+   "operation": "update",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-Dt75K6xm.js"
+   ],
+   "evidence": [
+    "index-Dt75K6xm.js@1319"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/nat?form=pt",
+   "operation": "insert",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-Dt75K6xm.js"
+   ],
+   "evidence": [
+    "index-Dt75K6xm.js@967"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/nat?form=pt",
+   "operation": "load",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-Dt75K6xm.js"
+   ],
+   "evidence": [
+    "index-Dt75K6xm.js@900"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/nat?form=pt",
+   "operation": "remove",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-Dt75K6xm.js"
+   ],
+   "evidence": [
+    "index-Dt75K6xm.js@1034"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/nat?form=pt",
+   "operation": "update",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-Dt75K6xm.js"
+   ],
+   "evidence": [
+    "index-Dt75K6xm.js@1107"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/nat?form=setting",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "index-Dt75K6xm.js"
+   ],
+   "evidence": [
+    "index-Dt75K6xm.js@304"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/nat?form=setting",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "index-Dt75K6xm.js"
+   ],
+   "evidence": [
+    "index-Dt75K6xm.js@377"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/nat?form=vs",
+   "operation": "insert",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-Dt75K6xm.js"
+   ],
+   "evidence": [
+    "index-Dt75K6xm.js@696"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/nat?form=vs",
+   "operation": "load",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-Dt75K6xm.js"
+   ],
+   "evidence": [
+    "index-Dt75K6xm.js@629"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/nat?form=vs",
+   "operation": "remove",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-Dt75K6xm.js"
+   ],
+   "evidence": [
+    "index-Dt75K6xm.js@763"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/nat?form=vs",
+   "operation": "update",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-Dt75K6xm.js"
+   ],
+   "evidence": [
+    "index-Dt75K6xm.js@836"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=lan_agg",
+   "operation": "read",
+   "params_hint": [
+    "port_settings"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "lan-mbOsJmwe.js"
+   ],
+   "evidence": [
+    "lan-mbOsJmwe.js@227"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=lan_agg",
+   "operation": "write",
+   "params_hint": [
+    "port_settings"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "lan-mbOsJmwe.js"
+   ],
+   "evidence": [
+    "lan-mbOsJmwe.js@304"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=lan_fc",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "lan-mbOsJmwe.js"
+   ],
+   "evidence": [
+    "lan-mbOsJmwe.js@436"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=lan_fc",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "lan-mbOsJmwe.js"
+   ],
+   "evidence": [
+    "lan-mbOsJmwe.js@512"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=lan_ipv4",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "lan-mbOsJmwe.js"
+   ],
+   "evidence": [
+    "lan-mbOsJmwe.js@67"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=lan_ipv4",
+   "operation": "write",
+   "params_hint": [
+    "port_settings"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "lan-mbOsJmwe.js"
+   ],
+   "evidence": [
+    "lan-mbOsJmwe.js@145"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=lan_ipv6",
+   "operation": "read",
+   "params_hint": [
+    "assign_type",
+    "dhcp_prefix",
+    "release_time"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-CIJ4UT7g.js"
+   ],
+   "evidence": [
+    "index-CIJ4UT7g.js@12009"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=lan_ipv6",
+   "operation": "write",
+   "params_hint": [
+    "address",
+    "assign_type",
+    "dhcp_prefix",
+    "rdnss_prefix",
+    "release_time",
+    "slaac_prefix"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-CIJ4UT7g.js"
+   ],
+   "evidence": [
+    "index-CIJ4UT7g.js@12075"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=lan_jumbo_frame",
+   "operation": "read",
+   "params_hint": [
+    "__name",
+    "enable",
+    "expose"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "JumboFrame.vue_vue_type_script_setup_true_lang-mlWUve3w.js"
+   ],
+   "evidence": [
+    "JumboFrame.vue_vue_type_script_setup_true_lang-mlWUve3w.js@2217"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=lan_jumbo_frame",
+   "operation": "write",
+   "params_hint": [
+    "__name",
+    "enable",
+    "expose",
+    "limit"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "JumboFrame.vue_vue_type_script_setup_true_lang-mlWUve3w.js"
+   ],
+   "evidence": [
+    "JumboFrame.vue_vue_type_script_setup_true_lang-mlWUve3w.js@2315"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=mac_clone_advanced",
+   "operation": "check",
+   "params_hint": [
+    "__name",
+    "expose"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-Cdfl5mJ4.js"
+   ],
+   "evidence": [
+    "index-Cdfl5mJ4.js@6452"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=mac_clone_advanced",
+   "operation": "read",
+   "params_hint": [
+    "connection_type"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "MacClone.model-DscKj0nj.js",
+    "index-Cdfl5mJ4.js"
+   ],
+   "evidence": [
+    "MacClone.model-DscKj0nj.js@74",
+    "index-Cdfl5mJ4.js@6201"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=mac_clone_advanced",
+   "operation": "write",
+   "params_hint": [
+    "mac_clone_type"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "MacClone.model-DscKj0nj.js",
+    "index-Cdfl5mJ4.js"
+   ],
+   "evidence": [
+    "MacClone.model-DscKj0nj.js@349",
+    "index-Cdfl5mJ4.js@6363"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=multi_wan_internet_status",
+   "operation": "read",
+   "params_hint": [
+    "ethernet",
+    "hotspot",
+    "ipv4",
+    "ipv6",
+    "usb"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-BcbHshXp.js"
+   ],
+   "evidence": [
+    "index-BcbHshXp.js@1372"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=network_access_detect",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "quickSetupStep-DiY6l2DG.js"
+   ],
+   "evidence": [
+    "quickSetupStep-DiY6l2DG.js@1483"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=port_speed_current",
+   "operation": "read",
+   "params_hint": [
+    "submit"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-Cdfl5mJ4.js"
+   ],
+   "evidence": [
+    "index-Cdfl5mJ4.js@3096"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=port_speed_current",
+   "operation": "write",
+   "params_hint": [
+    "menu",
+    "speed"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-Cdfl5mJ4.js"
+   ],
+   "evidence": [
+    "index-Cdfl5mJ4.js@2081"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=port_speed_supported",
+   "operation": "read",
+   "params_hint": [
+    "submit"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-Cdfl5mJ4.js"
+   ],
+   "evidence": [
+    "index-Cdfl5mJ4.js@3163"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=status_ipv4",
+   "operation": "read",
+   "params_hint": [
+    "advanced",
+    "mode"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-D26yCMJF.js"
+   ],
+   "evidence": [
+    "index-D26yCMJF.js@8675"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_autodetect",
+   "operation": "detect",
+   "params_hint": [
+    "port"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "quickSetupStep-DiY6l2DG.js"
+   ],
+   "evidence": [
+    "quickSetupStep-DiY6l2DG.js@751"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_autodetect",
+   "operation": "read",
+   "params_hint": [
+    "disabled"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "quickSetupStep-DiY6l2DG.js"
+   ],
+   "evidence": [
+    "quickSetupStep-DiY6l2DG.js@832"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_backup_enable",
+   "operation": "read",
+   "params_hint": [
+    "enable"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "multiWan-BwjpWIQP.js"
+   ],
+   "evidence": [
+    "multiWan-BwjpWIQP.js@495"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_backup_enable",
+   "operation": "write",
+   "params_hint": [
+    "enable"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "multiWan-BwjpWIQP.js"
+   ],
+   "evidence": [
+    "multiWan-BwjpWIQP.js@571"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_detect_state",
+   "operation": "read",
+   "params_hint": [
+    "enable"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "internetPort-7vaIGZFu.js"
+   ],
+   "evidence": [
+    "internetPort-7vaIGZFu.js@543"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_detect_state",
+   "operation": "write",
+   "params_hint": [
+    "enable"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "internetPort-7vaIGZFu.js"
+   ],
+   "evidence": [
+    "internetPort-7vaIGZFu.js@592"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_dohdot",
+   "operation": "detect",
+   "params_hint": [
+    "dns_privacy"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-Cdfl5mJ4.js"
+   ],
+   "evidence": [
+    "index-Cdfl5mJ4.js@7790"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_dohdot",
+   "operation": "get_list",
+   "params_hint": [
+    "dns_privacy"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-Cdfl5mJ4.js"
+   ],
+   "evidence": [
+    "index-Cdfl5mJ4.js@7888"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_dohdot",
+   "operation": "read",
+   "params_hint": [
+    "dns_privacy"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-Cdfl5mJ4.js"
+   ],
+   "evidence": [
+    "index-Cdfl5mJ4.js@7612",
+    "index-Cdfl5mJ4.js@7645"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_dohdot",
+   "operation": "write",
+   "params_hint": [
+    "dns_privacy"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-Cdfl5mJ4.js"
+   ],
+   "evidence": [
+    "index-Cdfl5mJ4.js@7734"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_fc",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "index-Cdfl5mJ4.js"
+   ],
+   "evidence": [
+    "index-Cdfl5mJ4.js@4320"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_fc",
+   "operation": "write",
+   "params_hint": [
+    "__name",
+    "expose",
+    "rx_enable",
+    "tx_enable"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-Cdfl5mJ4.js"
+   ],
+   "evidence": [
+    "index-Cdfl5mJ4.js@4473"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_giga_lite",
+   "operation": "read",
+   "params_hint": [
+    "enable",
+    "submit"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-Cdfl5mJ4.js"
+   ],
+   "evidence": [
+    "index-Cdfl5mJ4.js@6811"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_giga_lite",
+   "operation": "write",
+   "params_hint": [
+    "instruction",
+    "title"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-Cdfl5mJ4.js"
+   ],
+   "evidence": [
+    "index-Cdfl5mJ4.js@6955"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_bigpond",
+   "operation": "read",
+   "params_hint": [
+    "conn_mode",
+    "domain",
+    "mtu",
+    "password",
+    "server"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "QsConnection.model-BdeOj_yF.js"
+   ],
+   "evidence": [
+    "QsConnection.model-BdeOj_yF.js@1958"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_bigpond",
+   "operation": "write",
+   "params_hint": [
+    "conn_mode",
+    "conntype",
+    "demand_idle",
+    "domain",
+    "mtu",
+    "password",
+    "server",
+    "username"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "QsConnection.model-BdeOj_yF.js"
+   ],
+   "evidence": [
+    "QsConnection.model-BdeOj_yF.js@2304"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_dslite",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "QsConnection.model-BdeOj_yF.js"
+   ],
+   "evidence": [
+    "QsConnection.model-BdeOj_yF.js@2921"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_dslite",
+   "operation": "write",
+   "params_hint": [
+    "conntype",
+    "dynamic_mode",
+    "is_support_dynamic_mode"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "QsConnection.model-BdeOj_yF.js"
+   ],
+   "evidence": [
+    "QsConnection.model-BdeOj_yF.js@3170"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_dynamic",
+   "operation": "read",
+   "params_hint": [
+    "conn_status",
+    "conntype",
+    "ip",
+    "netmask",
+    "share"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "QsConnection.model-BdeOj_yF.js"
+   ],
+   "evidence": [
+    "QsConnection.model-BdeOj_yF.js@3407",
+    "QsConnection.model-BdeOj_yF.js@4323"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_dynamic",
+   "operation": "release",
+   "params_hint": [
+    "share"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "QsConnection.model-BdeOj_yF.js"
+   ],
+   "evidence": [
+    "QsConnection.model-BdeOj_yF.js@4160"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_dynamic",
+   "operation": "renew",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "QsConnection.model-BdeOj_yF.js"
+   ],
+   "evidence": [
+    "QsConnection.model-BdeOj_yF.js@4017"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_dynamic",
+   "operation": "write",
+   "params_hint": [
+    "conn_status",
+    "conntype",
+    "gateway",
+    "ipaddr",
+    "link_status",
+    "netmask",
+    "pri_dns",
+    "snd_dns"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "QsConnection.model-BdeOj_yF.js"
+   ],
+   "evidence": [
+    "QsConnection.model-BdeOj_yF.js@3520"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_ipv6_option",
+   "operation": "read",
+   "params_hint": [
+    "conntype"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "InternetConnection.vue_vue_type_script_setup_true_lang-DPtcYVgI.js"
+   ],
+   "evidence": [
+    "InternetConnection.vue_vue_type_script_setup_true_lang-DPtcYVgI.js@2079"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_ipv6_option",
+   "operation": "write",
+   "params_hint": [
+    "data"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "InternetConnection.vue_vue_type_script_setup_true_lang-DPtcYVgI.js"
+   ],
+   "evidence": [
+    "InternetConnection.vue_vue_type_script_setup_true_lang-DPtcYVgI.js@2173"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_l2tp",
+   "operation": "connect",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "QsConnection.model-BdeOj_yF.js"
+   ],
+   "evidence": [
+    "QsConnection.model-BdeOj_yF.js@9295"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_l2tp",
+   "operation": "disconnect",
+   "params_hint": [
+    "share"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "QsConnection.model-BdeOj_yF.js"
+   ],
+   "evidence": [
+    "QsConnection.model-BdeOj_yF.js@9431"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_l2tp",
+   "operation": "read",
+   "params_hint": [
+    "share"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "QsConnection.model-BdeOj_yF.js"
+   ],
+   "evidence": [
+    "QsConnection.model-BdeOj_yF.js@9056",
+    "QsConnection.model-BdeOj_yF.js@9577"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_l2tp",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "QsConnection.model-BdeOj_yF.js"
+   ],
+   "evidence": [
+    "QsConnection.model-BdeOj_yF.js@9166"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_ocn",
+   "operation": "read",
+   "params_hint": [
+    "conntype"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "InternetConnection.vue_vue_type_script_setup_true_lang-DPtcYVgI.js"
+   ],
+   "evidence": [
+    "InternetConnection.vue_vue_type_script_setup_true_lang-DPtcYVgI.js@1601"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_ocn",
+   "operation": "write",
+   "params_hint": [
+    "conntype"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "InternetConnection.vue_vue_type_script_setup_true_lang-DPtcYVgI.js"
+   ],
+   "evidence": [
+    "InternetConnection.vue_vue_type_script_setup_true_lang-DPtcYVgI.js@1721"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_pppoe",
+   "operation": "connect",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "QsConnection.model-BdeOj_yF.js"
+   ],
+   "evidence": [
+    "QsConnection.model-BdeOj_yF.js@5600"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_pppoe",
+   "operation": "disconnect",
+   "params_hint": [
+    "share"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "QsConnection.model-BdeOj_yF.js"
+   ],
+   "evidence": [
+    "QsConnection.model-BdeOj_yF.js@5730"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_pppoe",
+   "operation": "read",
+   "params_hint": [
+    "password",
+    "share"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "QsConnection.model-BdeOj_yF.js"
+   ],
+   "evidence": [
+    "QsConnection.model-BdeOj_yF.js@5082",
+    "QsConnection.model-BdeOj_yF.js@5870"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_pppoe",
+   "operation": "release",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "QsConnection.model-BdeOj_yF.js"
+   ],
+   "evidence": [
+    "QsConnection.model-BdeOj_yF.js@5446"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_pppoe",
+   "operation": "renew",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "QsConnection.model-BdeOj_yF.js"
+   ],
+   "evidence": [
+    "QsConnection.model-BdeOj_yF.js@5305"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_pppoe",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "QsConnection.model-BdeOj_yF.js"
+   ],
+   "evidence": [
+    "QsConnection.model-BdeOj_yF.js@5193"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_pptp",
+   "operation": "connect",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "QsConnection.model-BdeOj_yF.js"
+   ],
+   "evidence": [
+    "QsConnection.model-BdeOj_yF.js@9970"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_pptp",
+   "operation": "disconnect",
+   "params_hint": [
+    "share"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "QsConnection.model-BdeOj_yF.js"
+   ],
+   "evidence": [
+    "QsConnection.model-BdeOj_yF.js@10106"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_pptp",
+   "operation": "read",
+   "params_hint": [
+    "password",
+    "share"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "QsConnection.model-BdeOj_yF.js"
+   ],
+   "evidence": [
+    "QsConnection.model-BdeOj_yF.js@9731",
+    "QsConnection.model-BdeOj_yF.js@10252"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_pptp",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "QsConnection.model-BdeOj_yF.js"
+   ],
+   "evidence": [
+    "QsConnection.model-BdeOj_yF.js@9841"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_protos",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "index-D26yCMJF.js"
+   ],
+   "evidence": [
+    "index-D26yCMJF.js@8918"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_staticip",
+   "operation": "read",
+   "params_hint": [
+    "gateway",
+    "ip",
+    "mtu",
+    "netmask"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "QsConnection.model-BdeOj_yF.js"
+   ],
+   "evidence": [
+    "QsConnection.model-BdeOj_yF.js@12200"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_staticip",
+   "operation": "write",
+   "params_hint": [
+    "conn_status",
+    "conntype",
+    "gateway",
+    "ipaddr",
+    "mtu",
+    "netmask",
+    "pri_dns",
+    "snd_dns"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "QsConnection.model-BdeOj_yF.js"
+   ],
+   "evidence": [
+    "QsConnection.model-BdeOj_yF.js@12462"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_status",
+   "operation": "read",
+   "params_hint": [
+    "advanced",
+    "mode"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-D26yCMJF.js"
+   ],
+   "evidence": [
+    "index-D26yCMJF.js@8756"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_v6plus",
+   "operation": "read",
+   "params_hint": [
+    "conntype"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "InternetConnection.vue_vue_type_script_setup_true_lang-DPtcYVgI.js"
+   ],
+   "evidence": [
+    "InternetConnection.vue_vue_type_script_setup_true_lang-DPtcYVgI.js@1832"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv4_v6plus",
+   "operation": "write",
+   "params_hint": [
+    "conntype"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "InternetConnection.vue_vue_type_script_setup_true_lang-DPtcYVgI.js"
+   ],
+   "evidence": [
+    "InternetConnection.vue_vue_type_script_setup_true_lang-DPtcYVgI.js@1958"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv6_dynamic",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "index-CIJ4UT7g.js"
+   ],
+   "evidence": [
+    "index-CIJ4UT7g.js@4311"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv6_dynamic",
+   "operation": "release",
+   "params_hint": [
+    "address",
+    "gateway",
+    "mtu"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-CIJ4UT7g.js"
+   ],
+   "evidence": [
+    "index-CIJ4UT7g.js@4622"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv6_dynamic",
+   "operation": "renew",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "index-CIJ4UT7g.js"
+   ],
+   "evidence": [
+    "index-CIJ4UT7g.js@4506"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv6_dynamic",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "index-CIJ4UT7g.js"
+   ],
+   "evidence": [
+    "index-CIJ4UT7g.js@4413"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv6_pass",
+   "operation": "write",
+   "params_hint": [
+    "__name",
+    "expose",
+    "pause",
+    "resume"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-CIJ4UT7g.js"
+   ],
+   "evidence": [
+    "index-CIJ4UT7g.js@7559"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv6_pppoe",
+   "operation": "connect",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "index-CIJ4UT7g.js"
+   ],
+   "evidence": [
+    "index-CIJ4UT7g.js@6339"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv6_pppoe",
+   "operation": "disconnect",
+   "params_hint": [
+    "conntype",
+    "dns_mode",
+    "gateway",
+    "ipaddr",
+    "netmask",
+    "tunnel_addr"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-CIJ4UT7g.js"
+   ],
+   "evidence": [
+    "index-CIJ4UT7g.js@6457"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv6_pppoe",
+   "operation": "read",
+   "params_hint": [
+    "pppflag",
+    "share"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-CIJ4UT7g.js"
+   ],
+   "evidence": [
+    "index-CIJ4UT7g.js@6100"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv6_pppoe",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "index-CIJ4UT7g.js"
+   ],
+   "evidence": [
+    "index-CIJ4UT7g.js@6246"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv6_protos",
+   "operation": "read",
+   "params_hint": [
+    "advanced",
+    "label",
+    "value"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-CIJ4UT7g.js"
+   ],
+   "evidence": [
+    "index-CIJ4UT7g.js@2271"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv6_static",
+   "operation": "read",
+   "params_hint": [
+    "conntype",
+    "ip6addr",
+    "ip6gw",
+    "pri_dns",
+    "snd_dns"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-CIJ4UT7g.js"
+   ],
+   "evidence": [
+    "index-CIJ4UT7g.js@4877"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv6_static",
+   "operation": "write",
+   "params_hint": [
+    "conntype",
+    "ip6addr",
+    "ip6gw",
+    "mtu",
+    "pri_dns",
+    "snd_dns"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-CIJ4UT7g.js"
+   ],
+   "evidence": [
+    "index-CIJ4UT7g.js@4943"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv6_status",
+   "operation": "read",
+   "params_hint": [
+    "conntype",
+    "enable"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-CIJ4UT7g.js"
+   ],
+   "evidence": [
+    "index-CIJ4UT7g.js@3134"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv6_status",
+   "operation": "write",
+   "params_hint": [
+    "conntype",
+    "enable",
+    "ip6addr",
+    "prefix",
+    "pri_dns",
+    "snd_dns"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-CIJ4UT7g.js"
+   ],
+   "evidence": [
+    "index-CIJ4UT7g.js@3200"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv6_tunnel",
+   "operation": "connect",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "index-CIJ4UT7g.js"
+   ],
+   "evidence": [
+    "index-CIJ4UT7g.js@7296"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv6_tunnel",
+   "operation": "disconnect",
+   "params_hint": [
+    "conntype"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-CIJ4UT7g.js"
+   ],
+   "evidence": [
+    "index-CIJ4UT7g.js@7414"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv6_tunnel",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "index-CIJ4UT7g.js"
+   ],
+   "evidence": [
+    "index-CIJ4UT7g.js@7101"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_ipv6_tunnel",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "index-CIJ4UT7g.js"
+   ],
+   "evidence": [
+    "index-CIJ4UT7g.js@7203"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_port_status",
+   "operation": "detect",
+   "params_hint": [
+    "enable",
+    "port"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "internetPort-7vaIGZFu.js"
+   ],
+   "evidence": [
+    "internetPort-7vaIGZFu.js@363"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_port_status",
+   "operation": "read",
+   "params_hint": [
+    "first_change"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "internetPort-7vaIGZFu.js"
+   ],
+   "evidence": [
+    "internetPort-7vaIGZFu.js@67"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_port_status",
+   "operation": "write",
+   "params_hint": [
+    "first_change",
+    "port"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "internetPort-7vaIGZFu.js"
+   ],
+   "evidence": [
+    "internetPort-7vaIGZFu.js@152",
+    "internetPort-7vaIGZFu.js@242"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_retrieve_ipv4_pppoe",
+   "operation": "read",
+   "params_hint": [
+    "connection_type",
+    "disabled"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "quickSetupStep-DiY6l2DG.js"
+   ],
+   "evidence": [
+    "quickSetupStep-DiY6l2DG.js@952"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/network?form=wan_retrieve_ipv4_pppoe",
+   "operation": "write",
+   "params_hint": [
+    "connection_type",
+    "disabled"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "quickSetupStep-DiY6l2DG.js"
+   ],
+   "evidence": [
+    "quickSetupStep-DiY6l2DG.js@982"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/openvpn?form=config",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "model-DmWt0_E8.js"
+   ],
+   "evidence": [
+    "model-DmWt0_E8.js@478"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/openvpn?form=config",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "model-DmWt0_E8.js"
+   ],
+   "evidence": [
+    "model-DmWt0_E8.js@527"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/openvpn?form=export",
+   "operation": "(file)",
+   "params_hint": [
+    "enabled"
+   ],
+   "mutates": null,
+   "ui_context": [
+    "model-DmWt0_E8.js"
+   ],
+   "evidence": [
+    "model-DmWt0_E8.js@781"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/openvpn?form=openvpn_cert",
+   "operation": "check",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "model-DmWt0_E8.js"
+   ],
+   "evidence": [
+    "model-DmWt0_E8.js@656"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/openvpn?form=openvpn_cert",
+   "operation": "generate",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "model-DmWt0_E8.js"
+   ],
+   "evidence": [
+    "model-DmWt0_E8.js@580"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/portal?form=portal",
+   "operation": "read",
+   "params_hint": [
+    "data",
+    "enabled",
+    "key",
+    "ssid"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "utils-DNj8WlBR.js"
+   ],
+   "evidence": [
+    "utils-DNj8WlBR.js@3178"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/portal?form=wireless_2g",
+   "operation": "load",
+   "params_hint": [
+    "data",
+    "enabled",
+    "key",
+    "ssid"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "utils-DNj8WlBR.js"
+   ],
+   "evidence": [
+    "utils-DNj8WlBR.js@3281"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/portal?form=wireless_5g",
+   "operation": "load",
+   "params_hint": [
+    "enabled",
+    "key",
+    "ssid"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "utils-DNj8WlBR.js"
+   ],
+   "evidence": [
+    "utils-DNj8WlBR.js@3485"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/pptpd?form=accounts",
+   "operation": "insert",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "model-DmWt0_E8.js"
+   ],
+   "evidence": [
+    "model-DmWt0_E8.js@289"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/pptpd?form=accounts",
+   "operation": "load",
+   "params_hint": [
+    "key",
+    "password",
+    "username"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "model-DmWt0_E8.js"
+   ],
+   "evidence": [
+    "model-DmWt0_E8.js@1868"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/pptpd?form=accounts",
+   "operation": "remove",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "model-DmWt0_E8.js"
+   ],
+   "evidence": [
+    "model-DmWt0_E8.js@336"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/pptpd?form=accounts",
+   "operation": "update",
+   "params_hint": [
+    "key",
+    "max",
+    "password",
+    "username"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "model-DmWt0_E8.js"
+   ],
+   "evidence": [
+    "model-DmWt0_E8.js@2105"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/pptpd?form=config",
+   "operation": "read",
+   "params_hint": [
+    "enabled"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "model-DmWt0_E8.js"
+   ],
+   "evidence": [
+    "model-DmWt0_E8.js@889"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/pptpd?form=config",
+   "operation": "write",
+   "params_hint": [
+    "enabled",
+    "netbios_pass",
+    "remoteip",
+    "samba_access"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "model-DmWt0_E8.js"
+   ],
+   "evidence": [
+    "model-DmWt0_E8.js@1172"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/privacy_policy?form=fing_auth_state",
+   "operation": "read",
+   "params_hint": [
+    "enable"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "ThirdFingRepo-UXMkHyXD.js"
+   ],
+   "evidence": [
+    "ThirdFingRepo-UXMkHyXD.js@275"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/privacy_policy?form=fing_auth_state",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "ThirdFingRepo-UXMkHyXD.js"
+   ],
+   "evidence": [
+    "ThirdFingRepo-UXMkHyXD.js@531"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/quick_setup?form=ap_setup",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "quickSetupStep-DiY6l2DG.js"
+   ],
+   "evidence": [
+    "quickSetupStep-DiY6l2DG.js@3348"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/quick_setup?form=ap_setup",
+   "operation": "write",
+   "params_hint": [
+    "wireless_2g",
+    "wireless_5g"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "quickSetupStep-DiY6l2DG.js"
+   ],
+   "evidence": [
+    "quickSetupStep-DiY6l2DG.js@3775"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/quick_setup?form=check_router",
+   "operation": "read",
+   "params_hint": [
+    "connection_type"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "quickSetupStep-DiY6l2DG.js"
+   ],
+   "evidence": [
+    "quickSetupStep-DiY6l2DG.js@1028"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/quick_setup?form=check_support_extender_guidance",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "quickSetupStep-DiY6l2DG.js"
+   ],
+   "evidence": [
+    "quickSetupStep-DiY6l2DG.js@1591"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/quick_setup?form=client_setup",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "quickSetupStep-DiY6l2DG.js"
+   ],
+   "evidence": [
+    "quickSetupStep-DiY6l2DG.js@3530"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/quick_setup?form=client_setup",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "quickSetupStep-DiY6l2DG.js"
+   ],
+   "evidence": [
+    "quickSetupStep-DiY6l2DG.js@4032"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/quick_setup?form=hotspot_setup",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "quickSetupStep-DiY6l2DG.js"
+   ],
+   "evidence": [
+    "quickSetupStep-DiY6l2DG.js@3659"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/quick_setup?form=hotspot_setup",
+   "operation": "write",
+   "params_hint": [
+    "mode"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "quickSetupStep-DiY6l2DG.js"
+   ],
+   "evidence": [
+    "quickSetupStep-DiY6l2DG.js@4149"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/quick_setup?form=multi_setup",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "quickSetupStep-DiY6l2DG.js"
+   ],
+   "evidence": [
+    "quickSetupStep-DiY6l2DG.js@3454"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/quick_setup?form=multi_setup",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "quickSetupStep-DiY6l2DG.js"
+   ],
+   "evidence": [
+    "quickSetupStep-DiY6l2DG.js@3968"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/quick_setup?form=quick_setup",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "quickSetupStep-DiY6l2DG.js"
+   ],
+   "evidence": [
+    "quickSetupStep-DiY6l2DG.js@485"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/quick_setup?form=quick_setup",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "quickSetupStep-DiY6l2DG.js"
+   ],
+   "evidence": [
+    "quickSetupStep-DiY6l2DG.js@516"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/quick_setup?form=re_setup",
+   "operation": "read",
+   "params_hint": [
+    "port"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "quickSetupStep-DiY6l2DG.js"
+   ],
+   "evidence": [
+    "quickSetupStep-DiY6l2DG.js@585"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/quick_setup?form=re_setup",
+   "operation": "write",
+   "params_hint": [
+    "port"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "quickSetupStep-DiY6l2DG.js"
+   ],
+   "evidence": [
+    "quickSetupStep-DiY6l2DG.js@652"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/quick_setup?form=status",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "quickSetupStep-DiY6l2DG.js"
+   ],
+   "evidence": [
+    "quickSetupStep-DiY6l2DG.js@4414"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/reboot?form=set",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "reboot-CSaH8ten.js"
+   ],
+   "evidence": [
+    "reboot-CSaH8ten.js@100"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/reboot?form=set",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "reboot-CSaH8ten.js"
+   ],
+   "evidence": [
+    "reboot-CSaH8ten.js@131"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/security_settings?form=new_enable",
+   "operation": "read",
+   "params_hint": [
+    "conntype"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "model-CnZb8bfl.js"
+   ],
+   "evidence": [
+    "model-CnZb8bfl.js@381"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/security_settings?form=new_enable",
+   "operation": "write",
+   "params_hint": [
+    "enable",
+    "lan_ping",
+    "wan_ping"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "model-CnZb8bfl.js"
+   ],
+   "evidence": [
+    "model-CnZb8bfl.js@228"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/smart_network?form=client_speed_limit",
+   "operation": "read_max",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "smartNetwork-BsuVBI-s.js"
+   ],
+   "evidence": [
+    "smartNetwork-BsuVBI-s.js@362"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/smart_network?form=client_speed_limit",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "smartNetwork-BsuVBI-s.js"
+   ],
+   "evidence": [
+    "smartNetwork-BsuVBI-s.js@439"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/smart_network?form=game_accelerator",
+   "operation": "read_max",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "smartNetwork-BsuVBI-s.js"
+   ],
+   "evidence": [
+    "smartNetwork-BsuVBI-s.js@214"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/smart_network?form=game_accelerator",
+   "operation": "(request)",
+   "params_hint": [],
+   "mutates": null,
+   "ui_context": [
+    "smartNetwork-BsuVBI-s.js"
+   ],
+   "evidence": [
+    "smartNetwork-BsuVBI-s.js@120"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/smart_network?form=get_host_info",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "smartNetwork-BsuVBI-s.js"
+   ],
+   "evidence": [
+    "smartNetwork-BsuVBI-s.js@492"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/status?form=all",
+   "operation": "read",
+   "params_hint": [
+    "patrol_mark"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "status-D_pGh7Kl.js"
+   ],
+   "evidence": [
+    "status-D_pGh7Kl.js@307"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/status?form=cloud_login_window_pop",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "tpLinkCloud-Bh1gMjB_.js"
+   ],
+   "evidence": [
+    "tpLinkCloud-Bh1gMjB_.js@705"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/status?form=cloud_login_window_pop",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "tpLinkCloud-Bh1gMjB_.js"
+   ],
+   "evidence": [
+    "tpLinkCloud-Bh1gMjB_.js@778"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/status?form=internet",
+   "operation": "read",
+   "params_hint": [
+    "enable"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "status-D_pGh7Kl.js"
+   ],
+   "evidence": [
+    "status-D_pGh7Kl.js@158"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/status?form=menu_status",
+   "operation": "read",
+   "params_hint": [
+    "patrol_mark"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "status-D_pGh7Kl.js"
+   ],
+   "evidence": [
+    "status-D_pGh7Kl.js@437"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/status?form=menu_status",
+   "operation": "set",
+   "params_hint": [
+    "patrol_mark"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "status-D_pGh7Kl.js"
+   ],
+   "evidence": [
+    "status-D_pGh7Kl.js@467"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/status?form=network_map",
+   "operation": "read",
+   "params_hint": [
+    "__name",
+    "component",
+    "props"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-DLrhuwRS.js"
+   ],
+   "evidence": [
+    "index-DLrhuwRS.js@5578"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/status?form=portal_detect",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "quickSetupStep-DiY6l2DG.js"
+   ],
+   "evidence": [
+    "quickSetupStep-DiY6l2DG.js@1263"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/status?form=portal_detect",
+   "operation": "stop",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "quickSetupStep-DiY6l2DG.js"
+   ],
+   "evidence": [
+    "quickSetupStep-DiY6l2DG.js@1362"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/status?form=repeater",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "RepeaterRepo-BBk3YuDn.js"
+   ],
+   "evidence": [
+    "RepeaterRepo-BBk3YuDn.js@1102"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/status?form=repeater",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "RepeaterRepo-BBk3YuDn.js"
+   ],
+   "evidence": [
+    "RepeaterRepo-BBk3YuDn.js@1136"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/status?form=rootap",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "MainRouterService-D1dFHg8R.js"
+   ],
+   "evidence": [
+    "MainRouterService-D1dFHg8R.js@221"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/status?form=rootap",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "MainRouterService-D1dFHg8R.js"
+   ],
+   "evidence": [
+    "MainRouterService-D1dFHg8R.js@255"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/status?form=router",
+   "operation": "read",
+   "params_hint": [
+    "duplex",
+    "feature",
+    "name",
+    "speed",
+    "status"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "PortConfig.model-BRqc6tsz.js"
+   ],
+   "evidence": [
+    "PortConfig.model-BRqc6tsz.js@543"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/status?form=status_wireless_multi_ssid",
+   "operation": "read",
+   "params_hint": [
+    "enable",
+    "multi2g",
+    "multi5g",
+    "ssid"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "WirelessStatusCard-B-_wuW1N.js"
+   ],
+   "evidence": [
+    "WirelessStatusCard-B-_wuW1N.js@1745"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/status?form=user_experience_plan_switch",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "status-D_pGh7Kl.js"
+   ],
+   "evidence": [
+    "status-D_pGh7Kl.js@277"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/status?form=user_experience_plan_switch",
+   "operation": "write",
+   "params_hint": [
+    "enable"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "status-D_pGh7Kl.js"
+   ],
+   "evidence": [
+    "status-D_pGh7Kl.js@235"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/status?form=wan_cable_match_stat",
+   "operation": "read_match",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "quickSetupStep-DiY6l2DG.js"
+   ],
+   "evidence": [
+    "quickSetupStep-DiY6l2DG.js@5187"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/status?form=wan_dual_nat_state",
+   "operation": "read",
+   "params_hint": [
+    "match_status"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "quickSetupStep-DiY6l2DG.js"
+   ],
+   "evidence": [
+    "quickSetupStep-DiY6l2DG.js@5056"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/status?form=wan_speed",
+   "operation": "read",
+   "params_hint": [
+    "patrol_mark"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "status-D_pGh7Kl.js"
+   ],
+   "evidence": [
+    "status-D_pGh7Kl.js@378"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/system?form=ex_mode_switch",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "index-D26yCMJF.js"
+   ],
+   "evidence": [
+    "index-D26yCMJF.js@10050"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/system?form=logout",
+   "operation": "user_action",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "index-Cd9lOeyT.js"
+   ],
+   "evidence": [
+    "index-Cd9lOeyT.js@374"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/system?form=reboot",
+   "operation": "reboot",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "reboot-CSaH8ten.js"
+   ],
+   "evidence": [
+    "reboot-CSaH8ten.js@200"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/system?form=reboot",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "reboot-CSaH8ten.js"
+   ],
+   "evidence": [
+    "reboot-CSaH8ten.js@275"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/system?form=sysmode",
+   "operation": "read",
+   "params_hint": [
+    "mode"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-D26yCMJF.js"
+   ],
+   "evidence": [
+    "index-D26yCMJF.js@10185"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/system?form=sysmode",
+   "operation": "write",
+   "params_hint": [
+    "hardware_mode"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-D26yCMJF.js"
+   ],
+   "evidence": [
+    "index-D26yCMJF.js@10902"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/system?form=sysmode_v2",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "index-D26yCMJF.js"
+   ],
+   "evidence": [
+    "index-D26yCMJF.js@10039"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/system?form=sysmode_v2",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "index-D26yCMJF.js"
+   ],
+   "evidence": [
+    "index-D26yCMJF.js@9127"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/time?form=dst",
+   "operation": "read",
+   "params_hint": [
+    "dst_status",
+    "setting"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "time-D-qPvCej.js"
+   ],
+   "evidence": [
+    "time-D-qPvCej.js@657"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/time?form=dst",
+   "operation": "write",
+   "params_hint": [
+    "hh",
+    "mm",
+    "setting"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "time-D-qPvCej.js"
+   ],
+   "evidence": [
+    "time-D-qPvCej.js@733"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/time?form=hour24",
+   "operation": "write",
+   "params_hint": [
+    "hour24_enable"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "time-D-qPvCej.js"
+   ],
+   "evidence": [
+    "time-D-qPvCej.js@1335"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/time?form=settings",
+   "operation": "gmt",
+   "params_hint": [
+    "dst_status"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "time-D-qPvCej.js"
+   ],
+   "evidence": [
+    "time-D-qPvCej.js@542"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/time?form=settings",
+   "operation": "read",
+   "params_hint": [
+    "time"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "time-D-qPvCej.js"
+   ],
+   "evidence": [
+    "time-D-qPvCej.js@261"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/time?form=settings",
+   "operation": "refresh",
+   "params_hint": [
+    "dst_status"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "time-D-qPvCej.js"
+   ],
+   "evidence": [
+    "time-D-qPvCej.js@600"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/time?form=settings",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "time-D-qPvCej.js"
+   ],
+   "evidence": [
+    "time-D-qPvCej.js@506"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/traffic?form=dev_name",
+   "operation": "write",
+   "params_hint": [
+    "alias",
+    "mac"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-Cp9TINGt.js"
+   ],
+   "evidence": [
+    "index-Cp9TINGt.js@13481"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/upnp?form=enable",
+   "operation": "read",
+   "params_hint": [
+    "class"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-DQuKsUHV.js"
+   ],
+   "evidence": [
+    "index-DQuKsUHV.js@778"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/upnp?form=enable",
+   "operation": "write",
+   "params_hint": [
+    "class",
+    "enable"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-DQuKsUHV.js"
+   ],
+   "evidence": [
+    "index-DQuKsUHV.js@723"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/upnp?form=service",
+   "operation": "load",
+   "params_hint": [
+    "__name",
+    "class"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-DQuKsUHV.js"
+   ],
+   "evidence": [
+    "index-DQuKsUHV.js@868"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/usbmodem?form=isplist",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "QsUsbModem-D7pxiU_M.js"
+   ],
+   "evidence": [
+    "QsUsbModem-D7pxiU_M.js@12121"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/usbmodem?form=modemset",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "QsUsbModem-D7pxiU_M.js"
+   ],
+   "evidence": [
+    "QsUsbModem-D7pxiU_M.js@1600"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/vpn?form=enable",
+   "operation": "read",
+   "params_hint": [
+    "description",
+    "dns",
+    "enable",
+    "key",
+    "server",
+    "status",
+    "type"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "model-CI6Gt3Hz.js"
+   ],
+   "evidence": [
+    "model-CI6Gt3Hz.js@1399"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/vpn?form=enable",
+   "operation": "write",
+   "params_hint": [
+    "description",
+    "dns",
+    "enable",
+    "key",
+    "server",
+    "status",
+    "type",
+    "vendor"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "model-CI6Gt3Hz.js"
+   ],
+   "evidence": [
+    "model-CI6Gt3Hz.js@1481"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/vpn?form=ovpn",
+   "operation": "read",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "model-CI6Gt3Hz.js"
+   ],
+   "evidence": [
+    "model-CI6Gt3Hz.js@5250",
+    "model-CI6Gt3Hz.js@5488"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/vpn?form=ovpn",
+   "operation": "release",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "model-CI6Gt3Hz.js"
+   ],
+   "evidence": [
+    "model-CI6Gt3Hz.js@4902",
+    "model-CI6Gt3Hz.js@5026"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/vpn?form=ovpn",
+   "operation": "write",
+   "params_hint": [
+    "certificate_authority",
+    "client_certificate",
+    "client_key",
+    "static_key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "model-CI6Gt3Hz.js"
+   ],
+   "evidence": [
+    "model-CI6Gt3Hz.js@5812"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/vpn?form=server",
+   "operation": "connected_status",
+   "params_hint": [
+    "key",
+    "type"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "model-CI6Gt3Hz.js"
+   ],
+   "evidence": [
+    "model-CI6Gt3Hz.js@282"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/vpn?form=server",
+   "operation": "file_check",
+   "params_hint": [
+    "type"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "model-CI6Gt3Hz.js"
+   ],
+   "evidence": [
+    "model-CI6Gt3Hz.js@373"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/vpn?form=server",
+   "operation": "insert",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "model-CI6Gt3Hz.js"
+   ],
+   "evidence": [
+    "model-CI6Gt3Hz.js@4486"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/vpn?form=server",
+   "operation": "load",
+   "params_hint": [
+    "data"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "model-CI6Gt3Hz.js"
+   ],
+   "evidence": [
+    "model-CI6Gt3Hz.js@3001"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/vpn?form=server",
+   "operation": "remove",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "model-CI6Gt3Hz.js"
+   ],
+   "evidence": [
+    "model-CI6Gt3Hz.js@4699"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/vpn?form=server",
+   "operation": "update",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "model-CI6Gt3Hz.js"
+   ],
+   "evidence": [
+    "model-CI6Gt3Hz.js@4588"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/vpn?form=thirdvpn",
+   "operation": "cloud_check",
+   "params_hint": [
+    "vendor"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "model-CI6Gt3Hz.js"
+   ],
+   "evidence": [
+    "model-CI6Gt3Hz.js@8706"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/vpn?form=thirdvpn",
+   "operation": "enable_server",
+   "params_hint": [
+    "enable",
+    "key",
+    "vendor"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "model-CI6Gt3Hz.js"
+   ],
+   "evidence": [
+    "model-CI6Gt3Hz.js@7785"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/vpn?form=thirdvpn",
+   "operation": "get_detail",
+   "params_hint": [
+    "id",
+    "key",
+    "server_name"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "model-CI6Gt3Hz.js"
+   ],
+   "evidence": [
+    "model-CI6Gt3Hz.js@8179"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/vpn?form=thirdvpn",
+   "operation": "get_ping",
+   "params_hint": [
+    "description",
+    "id",
+    "type",
+    "vendor"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "model-CI6Gt3Hz.js"
+   ],
+   "evidence": [
+    "model-CI6Gt3Hz.js@8379"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/vpn?form=thirdvpn",
+   "operation": "get_server_list",
+   "params_hint": [
+    "key",
+    "vendor"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "model-CI6Gt3Hz.js"
+   ],
+   "evidence": [
+    "model-CI6Gt3Hz.js@7884"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/vpn?form=thirdvpn",
+   "operation": "insert",
+   "params_hint": [
+    "enable",
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "model-CI6Gt3Hz.js"
+   ],
+   "evidence": [
+    "model-CI6Gt3Hz.js@7639"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/vpn?form=thirdvpn",
+   "operation": "modify",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "model-CI6Gt3Hz.js"
+   ],
+   "evidence": [
+    "model-CI6Gt3Hz.js@7995"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/vpn?form=thirdvpn",
+   "operation": "nordvpn_login",
+   "params_hint": [
+    "token"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "model-CI6Gt3Hz.js"
+   ],
+   "evidence": [
+    "model-CI6Gt3Hz.js@7531"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/vpn?form=thirdvpn",
+   "operation": "surfshark_login",
+   "params_hint": [
+    "token"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "model-CI6Gt3Hz.js"
+   ],
+   "evidence": [
+    "model-CI6Gt3Hz.js@7424"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/vpn?form=thirdvpn",
+   "operation": "update",
+   "params_hint": [
+    "enable",
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "model-CI6Gt3Hz.js"
+   ],
+   "evidence": [
+    "model-CI6Gt3Hz.js@7701"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/vpn?form=thirdvpn",
+   "operation": "update_config",
+   "params_hint": [
+    "id",
+    "key",
+    "vendor"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "model-CI6Gt3Hz.js"
+   ],
+   "evidence": [
+    "model-CI6Gt3Hz.js@8282"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/vpn?form=thirdvpn",
+   "operation": "verify",
+   "params_hint": [
+    "key",
+    "server_name"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "model-CI6Gt3Hz.js"
+   ],
+   "evidence": [
+    "model-CI6Gt3Hz.js@8094"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/vpn?form=vpn_user_devices",
+   "operation": "load",
+   "params_hint": [
+    "key",
+    "mac",
+    "name",
+    "online"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "model-CI6Gt3Hz.js"
+   ],
+   "evidence": [
+    "model-CI6Gt3Hz.js@6357"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/vpn?form=vpn_user_list",
+   "operation": "insert",
+   "params_hint": [
+    "client_type",
+    "key",
+    "list",
+    "mac",
+    "name",
+    "online"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "model-CI6Gt3Hz.js"
+   ],
+   "evidence": [
+    "model-CI6Gt3Hz.js@6939"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/vpn?form=vpn_user_list",
+   "operation": "load",
+   "params_hint": [
+    "enable",
+    "key",
+    "mac",
+    "name"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "model-CI6Gt3Hz.js"
+   ],
+   "evidence": [
+    "model-CI6Gt3Hz.js@6737"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/vpn?form=vpn_user_list",
+   "operation": "remove",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "model-CI6Gt3Hz.js"
+   ],
+   "evidence": [
+    "model-CI6Gt3Hz.js@7312"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/vpn?form=vpn_user_list",
+   "operation": "update",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "model-CI6Gt3Hz.js"
+   ],
+   "evidence": [
+    "model-CI6Gt3Hz.js@7198"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/vpn?form=wireguard",
+   "operation": "(file)",
+   "params_hint": [
+    "data"
+   ],
+   "mutates": null,
+   "ui_context": [
+    "model-CI6Gt3Hz.js"
+   ],
+   "evidence": [
+    "model-CI6Gt3Hz.js@6192"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/vpnconn?form=config",
+   "operation": "disconnect",
+   "params_hint": [
+    "__name",
+    "key",
+    "vpntype"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-Ba5TLCvT.js"
+   ],
+   "evidence": [
+    "index-Ba5TLCvT.js@876"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/vpnconn?form=config",
+   "operation": "list",
+   "params_hint": [
+    "key",
+    "vpntype"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-Ba5TLCvT.js"
+   ],
+   "evidence": [
+    "index-Ba5TLCvT.js@729"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wifidog?form=portal_background",
+   "operation": "(file)",
+   "params_hint": [],
+   "mutates": null,
+   "ui_context": [
+    "guestNetwork-DrACgvF4.js"
+   ],
+   "evidence": [
+    "guestNetwork-DrACgvF4.js@1678"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wifidog?form=portal_background",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "guestNetwork-DrACgvF4.js"
+   ],
+   "evidence": [
+    "guestNetwork-DrACgvF4.js@1494"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wifidog?form=portal_logo",
+   "operation": "(file)",
+   "params_hint": [],
+   "mutates": null,
+   "ui_context": [
+    "guestNetwork-DrACgvF4.js"
+   ],
+   "evidence": [
+    "guestNetwork-DrACgvF4.js@1386"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wifidog?form=portal_logo",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "guestNetwork-DrACgvF4.js"
+   ],
+   "evidence": [
+    "guestNetwork-DrACgvF4.js@1214"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireguard?form=account",
+   "operation": "check_collision",
+   "params_hint": [
+    "client_address"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-CsqaoECh.js"
+   ],
+   "evidence": [
+    "index-CsqaoECh.js@4692"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireguard?form=account",
+   "operation": "export",
+   "params_hint": [
+    "event",
+    "key",
+    "loading"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-CsqaoECh.js"
+   ],
+   "evidence": [
+    "index-CsqaoECh.js@6096"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireguard?form=account",
+   "operation": "get_default",
+   "params_hint": [
+    "address",
+    "enable"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-CsqaoECh.js"
+   ],
+   "evidence": [
+    "index-CsqaoECh.js@2513"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireguard?form=account",
+   "operation": "insert",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-CsqaoECh.js"
+   ],
+   "evidence": [
+    "index-CsqaoECh.js@2305"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireguard?form=account",
+   "operation": "load",
+   "params_hint": [
+    "key",
+    "username"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-CsqaoECh.js"
+   ],
+   "evidence": [
+    "index-CsqaoECh.js@1971"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireguard?form=account",
+   "operation": "remove",
+   "params_hint": [
+    "__name",
+    "class",
+    "key",
+    "props",
+    "text",
+    "visible"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-CsqaoECh.js"
+   ],
+   "evidence": [
+    "index-CsqaoECh.js@7653"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireguard?form=account",
+   "operation": "renew",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-CsqaoECh.js"
+   ],
+   "evidence": [
+    "index-CsqaoECh.js@6409",
+    "index-CsqaoECh.js@6772"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireguard?form=account",
+   "operation": "update",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-CsqaoECh.js"
+   ],
+   "evidence": [
+    "index-CsqaoECh.js@2419"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireguard?form=config",
+   "operation": "read",
+   "params_hint": [
+    "access",
+    "address",
+    "enable"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-CsqaoECh.js"
+   ],
+   "evidence": [
+    "index-CsqaoECh.js@2955"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireguard?form=config",
+   "operation": "renew",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-CsqaoECh.js"
+   ],
+   "evidence": [
+    "index-CsqaoECh.js@6614"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireguard?form=config",
+   "operation": "wg_status",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-CsqaoECh.js"
+   ],
+   "evidence": [
+    "index-CsqaoECh.js@5630"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireguard?form=config",
+   "operation": "write",
+   "params_hint": [
+    "access",
+    "address",
+    "dns",
+    "enable",
+    "listen_port",
+    "persistent_keepalive",
+    "private_key",
+    "public_key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-CsqaoECh.js"
+   ],
+   "evidence": [
+    "index-CsqaoECh.js@3267"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless?form=chainmask_unsupport",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "index-D2UKwQH3.js"
+   ],
+   "evidence": [
+    "index-D2UKwQH3.js@931"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless?form=eco",
+   "operation": "read",
+   "params_hint": [
+    "performance_mode"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "EcoModeCard-D_Tf6X8N.js",
+    "ecoMode-BuOsHpJi.js"
+   ],
+   "evidence": [
+    "EcoModeCard-D_Tf6X8N.js@399",
+    "ecoMode-BuOsHpJi.js@171"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless?form=eco",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "EcoModeCard-D_Tf6X8N.js"
+   ],
+   "evidence": [
+    "EcoModeCard-D_Tf6X8N.js@566"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless?form=mlo_host",
+   "operation": "read",
+   "params_hint": [
+    "enable"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index.model-CoUHqGDi.js"
+   ],
+   "evidence": [
+    "index.model-CoUHqGDi.js@865"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless?form=mlo_host",
+   "operation": "write",
+   "params_hint": [
+    "label",
+    "ssid",
+    "value"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index.model-CoUHqGDi.js"
+   ],
+   "evidence": [
+    "index.model-CoUHqGDi.js@363"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless?form=ofdma",
+   "operation": "read",
+   "params_hint": [
+    "enable",
+    "setting"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-B6wvcXX4.js"
+   ],
+   "evidence": [
+    "index-B6wvcXX4.js@770"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless?form=ofdma",
+   "operation": "write",
+   "params_hint": [
+    "enable",
+    "setting"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-B6wvcXX4.js"
+   ],
+   "evidence": [
+    "index-B6wvcXX4.js@801"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless?form=ofdma_mimo",
+   "operation": "read",
+   "params_hint": [
+    "enable",
+    "setting"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-B6wvcXX4.js"
+   ],
+   "evidence": [
+    "index-B6wvcXX4.js@887"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless?form=ofdma_mimo",
+   "operation": "write",
+   "params_hint": [
+    "enable",
+    "setting"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-B6wvcXX4.js"
+   ],
+   "evidence": [
+    "index-B6wvcXX4.js@918"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless?form=portal_content",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "guestNetwork-DrACgvF4.js"
+   ],
+   "evidence": [
+    "guestNetwork-DrACgvF4.js@1792"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless?form=portal_content",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "guestNetwork-DrACgvF4.js"
+   ],
+   "evidence": [
+    "guestNetwork-DrACgvF4.js@1879"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless?form=region",
+   "operation": "read",
+   "params_hint": [
+    "country"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-B6wvcXX4.js"
+   ],
+   "evidence": [
+    "index-B6wvcXX4.js@1109"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless?form=region",
+   "operation": "write",
+   "params_hint": [
+    "country"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-B6wvcXX4.js"
+   ],
+   "evidence": [
+    "index-B6wvcXX4.js@1140"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless?form=smart_antenna",
+   "operation": "read",
+   "params_hint": [
+    "mode"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-DaAxGM0F.js"
+   ],
+   "evidence": [
+    "index-DaAxGM0F.js@491"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless?form=smart_antenna",
+   "operation": "write",
+   "params_hint": [
+    "mode"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-DaAxGM0F.js"
+   ],
+   "evidence": [
+    "index-DaAxGM0F.js@550"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless?form=smart_connect",
+   "operation": "read",
+   "params_hint": [
+    "enable",
+    "smart_enable"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "wirelessService-CbyYeeJQ.js"
+   ],
+   "evidence": [
+    "wirelessService-CbyYeeJQ.js@2679"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless?form=smart_connect",
+   "operation": "write",
+   "params_hint": [
+    "enable",
+    "form",
+    "smart_enable"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "wirelessService-CbyYeeJQ.js"
+   ],
+   "evidence": [
+    "wirelessService-CbyYeeJQ.js@2753"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless?form=survey",
+   "operation": "load",
+   "params_hint": [
+    "survey_2g",
+    "survey_5g"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "MainNetworkForm.vue_vue_type_script_setup_true_lang-BPVzMVFA.js"
+   ],
+   "evidence": [
+    "MainNetworkForm.vue_vue_type_script_setup_true_lang-BPVzMVFA.js@2202"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless?form=twt",
+   "operation": "read",
+   "params_hint": [
+    "enable"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-B6wvcXX4.js"
+   ],
+   "evidence": [
+    "index-B6wvcXX4.js@658"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless?form=twt",
+   "operation": "write",
+   "params_hint": [
+    "enable"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-B6wvcXX4.js"
+   ],
+   "evidence": [
+    "index-B6wvcXX4.js@689"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless?form=wireless_addition_setting",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "index-B6wvcXX4.js"
+   ],
+   "evidence": [
+    "index-B6wvcXX4.js@211"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless?form=wireless_addition_setting",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "index-B6wvcXX4.js"
+   ],
+   "evidence": [
+    "index-B6wvcXX4.js@244"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless?form=wireless_chainmask_",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "index-D2UKwQH3.js"
+   ],
+   "evidence": [
+    "index-D2UKwQH3.js@728"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless?form=wireless_chainmask_",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "index-D2UKwQH3.js"
+   ],
+   "evidence": [
+    "index-D2UKwQH3.js@822"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless?form=wireless_connect_to_network",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "ConnectNetworkRepo-BVFOf8RZ.js"
+   ],
+   "evidence": [
+    "ConnectNetworkRepo-BVFOf8RZ.js@1151"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless?form=wireless_connect_to_network",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "ConnectNetworkRepo-BVFOf8RZ.js"
+   ],
+   "evidence": [
+    "ConnectNetworkRepo-BVFOf8RZ.js@1248"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless?form=wireless_extended_network",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "ExtendedNetworkRepo-BR7oXsst.js"
+   ],
+   "evidence": [
+    "ExtendedNetworkRepo-BR7oXsst.js@788"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless?form=wireless_extended_network",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "ExtendedNetworkRepo-BR7oXsst.js"
+   ],
+   "evidence": [
+    "ExtendedNetworkRepo-BR7oXsst.js@867"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless_schedule_v2?form=settings",
+   "operation": "inforce",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "schedule-jyzvgaE7.js"
+   ],
+   "evidence": [
+    "schedule-jyzvgaE7.js@422"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless_schedule_v2?form=settings",
+   "operation": "insert",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "schedule-jyzvgaE7.js"
+   ],
+   "evidence": [
+    "schedule-jyzvgaE7.js@287"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless_schedule_v2?form=settings",
+   "operation": "read",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "schedule-jyzvgaE7.js"
+   ],
+   "evidence": [
+    "schedule-jyzvgaE7.js@119"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless_schedule_v2?form=settings",
+   "operation": "remove",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "schedule-jyzvgaE7.js"
+   ],
+   "evidence": [
+    "schedule-jyzvgaE7.js@354"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless_schedule_v2?form=settings",
+   "operation": "skip",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "schedule-jyzvgaE7.js"
+   ],
+   "evidence": [
+    "schedule-jyzvgaE7.js@497"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless_schedule_v2?form=settings",
+   "operation": "update",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "schedule-jyzvgaE7.js"
+   ],
+   "evidence": [
+    "schedule-jyzvgaE7.js@222"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wireless_schedule_v2?form=settings",
+   "operation": "write",
+   "params_hint": [
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "schedule-jyzvgaE7.js"
+   ],
+   "evidence": [
+    "schedule-jyzvgaE7.js@150",
+    "schedule-jyzvgaE7.js@184"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wol?form=device",
+   "operation": "insert",
+   "params_hint": [
+    "key",
+    "mac",
+    "name"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-CaJuiuBY.js"
+   ],
+   "evidence": [
+    "index-CaJuiuBY.js@957"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wol?form=device",
+   "operation": "load",
+   "params_hint": [
+    "key",
+    "mac",
+    "name"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-CaJuiuBY.js"
+   ],
+   "evidence": [
+    "index-CaJuiuBY.js@857"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wol?form=device",
+   "operation": "remove",
+   "params_hint": [
+    "data",
+    "key",
+    "text"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-CaJuiuBY.js"
+   ],
+   "evidence": [
+    "index-CaJuiuBY.js@1143"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wol?form=device",
+   "operation": "update",
+   "params_hint": [
+    "data",
+    "key"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-CaJuiuBY.js"
+   ],
+   "evidence": [
+    "index-CaJuiuBY.js@1063"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/wol?form=device",
+   "operation": "wakeup",
+   "params_hint": [
+    "data",
+    "text",
+    "value"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-CaJuiuBY.js"
+   ],
+   "evidence": [
+    "index-CaJuiuBY.js@1221"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "admin/yandex_dns?form=enable",
+   "operation": "read",
+   "params_hint": [
+    "enable"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-B3m19Vf9.js"
+   ],
+   "evidence": [
+    "index-B3m19Vf9.js@2015"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "device_config?form=config",
+   "operation": "read",
+   "params_hint": [
+    "force",
+    "region"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "update-store-DQkZxaRI.js"
+   ],
+   "evidence": [
+    "update-store-DQkZxaRI.js@281823"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "domain_login?form=dlogin",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "index-Cd9lOeyT.js"
+   ],
+   "evidence": [
+    "index-Cd9lOeyT.js@131"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "locale?form=country",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "update-store-DQkZxaRI.js"
+   ],
+   "evidence": [
+    "update-store-DQkZxaRI.js@282145"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "locale?form=lang",
+   "operation": "read",
+   "params_hint": [
+    "cache"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "update-store-DQkZxaRI.js"
+   ],
+   "evidence": [
+    "update-store-DQkZxaRI.js@251183"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "locale?form=lang",
+   "operation": "write",
+   "params_hint": [
+    "locale"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "update-store-DQkZxaRI.js"
+   ],
+   "evidence": [
+    "update-store-DQkZxaRI.js@282852"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "locale?form=list",
+   "operation": "read",
+   "params_hint": [
+    "label",
+    "setting",
+    "value"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "update-store-DQkZxaRI.js"
+   ],
+   "evidence": [
+    "update-store-DQkZxaRI.js@282524"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "login?form=auth",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "index-Cd9lOeyT.js"
+   ],
+   "evidence": [
+    "index-Cd9lOeyT.js@234"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "login?form=check_factory_default",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "index-Cd9lOeyT.js"
+   ],
+   "evidence": [
+    "index-Cd9lOeyT.js@67"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "login?form=check_internet",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "index-Cd9lOeyT.js"
+   ],
+   "evidence": [
+    "index-Cd9lOeyT.js@281"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "login?form=cloud_bind_status",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "tpLinkCloud-Bh1gMjB_.js"
+   ],
+   "evidence": [
+    "tpLinkCloud-Bh1gMjB_.js@375"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "login?form=cloud_login",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "tpLinkCloud-Bh1gMjB_.js"
+   ],
+   "evidence": [
+    "tpLinkCloud-Bh1gMjB_.js@525"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "login?form=get_eweb_url",
+   "operation": "read",
+   "params_hint": [
+    "token"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "tpLinkCloud-Bh1gMjB_.js"
+   ],
+   "evidence": [
+    "tpLinkCloud-Bh1gMjB_.js@151"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "login?form=get_logo_url",
+   "operation": "read",
+   "params_hint": [
+    "__name",
+    "menu",
+    "theme"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-D26yCMJF.js"
+   ],
+   "evidence": [
+    "index-D26yCMJF.js@16817"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "login?form=initial_login",
+   "operation": "write",
+   "params_hint": [],
+   "mutates": true,
+   "ui_context": [
+    "index-Ba_XuV8T.js"
+   ],
+   "evidence": [
+    "index-Ba_XuV8T.js@6602"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "login?form=keys",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "index-Cd9lOeyT.js"
+   ],
+   "evidence": [
+    "index-Cd9lOeyT.js@187"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "login?form=login",
+   "operation": "write",
+   "params_hint": [
+    "__name",
+    "emit",
+    "emits",
+    "props",
+    "update",
+    "visible"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-Ba_XuV8T.js"
+   ],
+   "evidence": [
+    "index-Ba_XuV8T.js@7511"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "login?form=password",
+   "operation": "read",
+   "params_hint": [
+    "__name",
+    "class",
+    "md"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-Ba_XuV8T.js"
+   ],
+   "evidence": [
+    "index-Ba_XuV8T.js@10780"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "login?form=password",
+   "operation": "write",
+   "params_hint": [
+    "visible"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-Ba_XuV8T.js"
+   ],
+   "evidence": [
+    "index-Ba_XuV8T.js@10191"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "login?form=sysmode",
+   "operation": "read",
+   "params_hint": [
+    "action",
+    "web_type"
+   ],
+   "mutates": false,
+   "ui_context": [
+    "index-Cd9lOeyT.js"
+   ],
+   "evidence": [
+    "index-Cd9lOeyT.js@476"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "login?form=telemetry",
+   "operation": "user_action",
+   "params_hint": [
+    "action",
+    "web_type"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-Cd9lOeyT.js"
+   ],
+   "evidence": [
+    "index-Cd9lOeyT.js@565"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "login?form=vercode",
+   "operation": "read",
+   "params_hint": [],
+   "mutates": false,
+   "ui_context": [
+    "index-Ba_XuV8T.js"
+   ],
+   "evidence": [
+    "index-Ba_XuV8T.js@8213"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  },
+  {
+   "path": "login?form=vercode",
+   "operation": "write",
+   "params_hint": [
+    "content",
+    "vercode"
+   ],
+   "mutates": true,
+   "ui_context": [
+    "index-Ba_XuV8T.js"
+   ],
+   "evidence": [
+    "index-Ba_XuV8T.js@8444"
+   ],
+   "confidence": "VERIFIED-from-JS (call site); params_hint is heuristic"
+  }
+ ],
+ "paths_without_resolved_call_site": [
+  {
+   "path": "admin/network?form=routes_static",
+   "files": [
+    "index-DuAv-xKS.js"
+   ]
+  },
+  {
+   "path": "admin/network?form=routes_system",
+   "files": [
+    "index-DuAv-xKS.js"
+   ]
+  },
+  {
+   "path": "admin/qos?form=update_database",
+   "files": [
+    "update-store-DQkZxaRI.js"
+   ]
+  },
+  {
+   "path": "admin/status?form=status_wireless_multi_",
+   "files": [
+    "MultiWirelessRepo-Cgq2zf7i.js"
+   ]
+  },
+  {
+   "path": "admin/syslog?form=save_log",
+   "files": [
+    "update-store-DQkZxaRI.js"
+   ]
+  },
+  {
+   "path": "admin/wireless?form=wireless",
+   "files": [
+    "index-B6wvcXX4.js"
+   ]
+  },
+  {
+   "path": "admin/wireless?form=wireless_multi",
+   "files": [
+    "WirelessMultiSSIDRepo-Ct8I22Fp.js"
+   ]
+  },
+  {
+   "path": "admin/wireless?form=wireless_multihw",
+   "files": [
+    "index-DQb6Ocny.js"
+   ]
+  },
+  {
+   "path": "blocking?form=vercode",
+   "files": [
+    "update-store-DQkZxaRI.js"
+   ]
+  },
+  {
+   "path": "debug?form=cmd",
+   "files": [
+    "update-store-DQkZxaRI.js"
+   ]
+  },
+  {
+   "path": "debug?form=refresh",
+   "files": [
+    "update-store-DQkZxaRI.js"
+   ]
+  },
+  {
+   "path": "debug?form=upload",
+   "files": [
+    "update-store-DQkZxaRI.js"
+   ]
+  },
+  {
+   "path": "domain_redirect?form=get",
+   "files": [
+    "update-store-DQkZxaRI.js"
+   ]
+  },
+  {
+   "path": "locale?form=multilang",
+   "files": [
+    "update-store-DQkZxaRI.js"
+   ]
+  },
+  {
+   "path": "login?form=get_deviceInfo",
+   "files": [
+    "update-store-DQkZxaRI.js"
+   ]
+  },
+  {
+   "path": "login?form=get_firmware_info",
+   "files": [
+    "update-store-DQkZxaRI.js"
+   ]
+  },
+  {
+   "path": "login?form=get_login_mode",
+   "files": [
+    "update-store-DQkZxaRI.js"
+   ]
+  },
+  {
+   "path": "login?form=get_token",
+   "files": [
+    "update-store-DQkZxaRI.js"
+   ]
+  },
+  {
+   "path": "login?form=reset_password",
+   "files": [
+    "update-store-DQkZxaRI.js"
+   ]
+  },
+  {
+   "path": "login?form=security",
+   "files": [
+    "update-store-DQkZxaRI.js"
+   ]
+  },
+  {
+   "path": "login?form=security_status",
+   "files": [
+    "update-store-DQkZxaRI.js"
+   ]
+  },
+  {
+   "path": "login?form=verify_type",
+   "files": [
+    "update-store-DQkZxaRI.js"
+   ]
+  },
+  {
+   "path": "upgrade?form=info",
+   "files": [
+    "update-store-DQkZxaRI.js"
+   ]
+  },
+  {
+   "path": "upgrade?form=set",
+   "files": [
+    "update-store-DQkZxaRI.js"
+   ]
+  },
+  {
+   "path": "wan_error?form=never",
+   "files": [
+    "update-store-DQkZxaRI.js"
+   ]
+  },
+  {
+   "path": "wan_error?form=read",
+   "files": [
+    "update-store-DQkZxaRI.js"
+   ]
+  }
+ ],
+ "prior_art_sources": [
+  "tplinkrouterc6u (AlexandrErohin/TP-Link-Archer-C6U, GPL-3.0) client/c6u.py + sg.py, PR #170",
+  "sharozdawa/tplink-archer-mcp (MIT) - built on AX53 1.11.0_2026-01-05 (reference only; browser runtime)",
+  "JithendraNara/tplinkctl (GPL-3.0)",
+  "taroru5358/tplink-router-mcp (MIT)"
+ ],
+ "_review": {
+  "_reviewed_by": "vectors agent (executed bundle in Node against the COMPLETE archer-ax53 bundle)",
+  "validation": "All 27 priority entries re-checked against js/archer-ax53/js. Paths and operations confirmed VERIFIED-from-JS. connected_clients=admin/smart_network?form=game_accelerator confirmed present (this is the hyphenated chunk the earlier ax.tgz dropped). No duplicate (path,operation,capability) tuples remained after dedupe.",
+  "resolved_from_complete_bundle": {
+   "dhcp_reservation name field": "hostname (NOT comment). model-DSIxX6DP.js write DTO sends new={hostname,ip,mac,enable:'on'|'off'}. R0 need only confirm server acceptance.",
+   "wifi write_spf shape": "operation=write_spf to multi-form URL /admin/wireless?form=wireless_2g&form=wireless_5g[&form=wireless_5g_2][&form=wireless_6g]; per-band fields wireless_<band>_{enable,ssid,encryption,psk_key,hidden}; IoT variant iot_<band>_*. Exact enable-only toggle body still R0 (read band, flip enable, write whole object)."
+  },
+  "R0_open_items": [
+   {
+    "item": "Wi-Fi write_spf enable-only body",
+    "status": "shape known from JS; exact minimal field set for a radio on/off needs a live read+write capture"
+   },
+   {
+    "item": "reservation name field hostname vs comment",
+    "status": "RESOLVED from JS = hostname; R0 only confirms acceptance"
+   },
+   {
+    "item": "HTTPS skip-encrypt acceptance",
+    "status": "OPEN. shouldSkipEncrypt() sends plain urlencoded body + no sign over HTTPS; must confirm the router actually accepts an unsigned/unencrypted authed request over :443 before relying on the simple path"
+   }
+  ]
+ }
+}

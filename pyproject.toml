@@ -1,0 +1,73 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "archer-router-mcp"
+version = "0.1.0"
+description = "Local, browser-free MCP server for the TP-Link Archer AX53 v1 router (read-first, write-gated, lockout-aware)."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [{ name = "Ebenezer Isaac" }]
+keywords = ["mcp", "tp-link", "archer", "router", "ax53"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Operating System :: OS Independent",
+  "Topic :: System :: Networking",
+]
+dependencies = [
+  # FastMCP lives at mcp.server.fastmcp in the 1.x line; 2.x renamed it.
+  "mcp>=1.12,<2",
+  "httpx>=0.27,<1",
+  "cryptography>=42",
+  "pydantic>=2.6,<3",
+  "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+  "pytest-asyncio>=0.23",
+  "pytest-cov>=5",
+  "respx>=0.21",
+  "ruff>=0.5",
+]
+
+[project.scripts]
+archer-router-mcp = "archer_router_mcp.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["archer_router_mcp"]
+
+[tool.hatch.build.targets.sdist]
+include = ["archer_router_mcp", "tests", "scripts", "README.md", "LICENSE", "NOTICE", ".env.example"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-ra"
+
+[tool.coverage.run]
+source = ["archer_router_mcp"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF"]
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "S108", "S324", "S311", "S505"]
+"scripts/**" = ["S603", "S607"]

@@ -114,6 +114,31 @@ async def test_create_app_registers_every_tool(tmp_path: Path) -> None:
         await c.aclose()
 
 
+async def test_create_app_binds_configured_host_and_port(tmp_path: Path) -> None:
+    """Regression: the configured MCP host/port must reach the FastMCP app.
+
+    ``create_app`` used to build ``FastMCP(SERVER_NAME, lifespan=lifespan)`` with no
+    ``host``/``port``. Because an explicit pydantic-settings init kwarg beats the
+    environment, FastMCP's own ``host``/``port`` kwargs (defaults 127.0.0.1:8000)
+    silently overrode ``ARCHER_MCP_HOST``/``ARCHER_MCP_PORT``, so the server always
+    bound 127.0.0.1:8000 instead of the configured address. This asserts the resolved
+    settings actually flow into the app; it fails against the old defaults.
+    """
+    fake = FakeRouter()
+    c = build_components(
+        fake,
+        state_dir=tmp_path,
+        extra_env={"ARCHER_MCP_HOST": "127.0.0.2", "ARCHER_MCP_PORT": "8770"},
+    )
+    try:
+        assert (c.global_settings.mcp_host, c.global_settings.mcp_port) == ("127.0.0.2", 8770)
+        app = server.create_app(c)
+        assert app.settings.host == "127.0.0.2"
+        assert app.settings.port == 8770
+    finally:
+        await c.aclose()
+
+
 def test_cli_list_tools(capsys) -> None:
     rc = cli.main(["--list-tools"])
     assert rc == 0

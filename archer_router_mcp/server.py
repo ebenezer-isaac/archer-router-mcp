@@ -300,7 +300,12 @@ def create_app(components: Components, *, sampler: PresenceSampler | None = None
             finally:
                 await sampler.stop()
 
-    app = FastMCP(SERVER_NAME, lifespan=lifespan)
+    app = FastMCP(
+        SERVER_NAME,
+        lifespan=lifespan,
+        host=components.global_settings.mcp_host,
+        port=components.global_settings.mcp_port,
+    )
 
     @app.tool(name="router_status")
     async def _status() -> dict[str, Any]:

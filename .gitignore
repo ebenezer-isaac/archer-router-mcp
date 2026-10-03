@@ -29,4 +29,8 @@ node_modules/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Runtime state and outputs (never committed)
 backups/
+exports/
+state/

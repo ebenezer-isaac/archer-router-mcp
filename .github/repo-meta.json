@@ -1,5 +1,6 @@
 {
   "description": "Local, browser-free MCP server for the TP-Link Archer AX53 router: 29 read-first, write-gated, lockout-aware tools over the router's own SG-hardened protocol.",
+  "homepage": "https://github.com/ebenezer-isaac/archer-router-mcp",
   "topics": [
     "mcp",
     "model-context-protocol",

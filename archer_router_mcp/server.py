@@ -18,16 +18,16 @@ from typing import Any
 import httpx
 
 from .auth import RouterAuthenticator
-from .core.breaker import LoginBreaker
-from .core.cli import configure_logging
-from .core.config import (
+from .config import (
     DeviceSettings,
     GlobalSettings,
     load_device_settings,
     load_global_settings,
 )
-from .core.ratelimit import RateLimiter
+from .core.breaker import LoginBreaker, canonical_device_key
+from .core.cli import configure_logging
 from .core.tooling import run_tool
+from .core.types import ConfirmWrite
 from .presence import (
     PresenceSampler,
     PresenceStore,
@@ -36,6 +36,7 @@ from .presence import (
     router_client_history,
     router_poll_presence,
 )
+from .ratelimit import RebootLimiter
 from .session import RouterSession
 from .tools import (
     router_add_dhcp_reservation,
@@ -62,7 +63,7 @@ from .tools import (
     router_unblock_device,
     router_wol,
 )
-from .transport import ArcherTransport, FingerprintProbe
+from .transport import ArcherTransport
 
 DEVICE_PREFIX = "ARCHER_ROUTER_"
 MCP_PREFIX = "ARCHER_MCP_"
@@ -135,7 +136,7 @@ class Components:
     authenticator: RouterAuthenticator
     session: RouterSession
     presence_store: PresenceStore
-    reboot_rate_limiter: RateLimiter
+    reboot_rate_limiter: RebootLimiter
     clock: Callable[[], float] = now_clock
 
     @classmethod
@@ -144,7 +145,6 @@ class Components:
         env: Mapping[str, str] | None = None,
         *,
         http_transport: httpx.AsyncBaseTransport | None = None,
-        fingerprint_probe: FingerprintProbe | None = None,
         rng: random.Random | None = None,
         clock: Callable[[], float] | None = None,
     ) -> Components:
@@ -152,6 +152,7 @@ class Components:
         settings = load_device_settings(DEVICE_PREFIX, source)
         _require_protected_macs(settings)
         global_settings = load_global_settings(MCP_PREFIX, source)
+        resolved_clock = clock or now_clock
         transport = ArcherTransport(
             host=settings.host,
             port=settings.port,
@@ -160,16 +161,24 @@ class Components:
             timeout_seconds=settings.timeout_seconds,
             tls_fingerprint_sha256=settings.tls_fingerprint_sha256,
             http_transport=http_transport,
-            fingerprint_probe=fingerprint_probe,
         )
-        breaker = LoginBreaker(resolve_state_dir(settings), settings)
+        device_key = canonical_device_key(settings.host)
+        state_dir = resolve_state_dir(settings)
+        breaker = LoginBreaker(
+            state_dir,
+            device_key,
+            max_failures=settings.max_login_failures,
+            login_disabled=settings.login_disabled,
+            disabled_hint=f"{settings.env_name('LOGIN_DISABLED')}=true",
+        )
         authenticator = RouterAuthenticator(settings, transport, breaker, rng=rng)
         session = RouterSession(settings, transport, authenticator)
-        presence_store = PresenceStore(resolve_state_dir(settings), max_mb=settings.presence_max_mb)
-        reboot_rate_limiter = RateLimiter(
-            resolve_state_dir(settings),
-            "reboot-ratelimit.json",
-            settings.reboot_min_interval_s,
+        presence_store = PresenceStore(state_dir, max_mb=settings.presence_max_mb)
+        reboot_rate_limiter = RebootLimiter(
+            state_dir,
+            device_key,
+            min_interval_s=settings.reboot_min_interval_s,
+            clock=resolved_clock,
         )
         return cls(
             settings,
@@ -180,7 +189,7 @@ class Components:
             session,
             presence_store,
             reboot_rate_limiter,
-            clock or now_clock,
+            resolved_clock,
         )
 
     async def aclose(self) -> None:
@@ -195,15 +204,14 @@ async def router_status(components: Components) -> dict[str, Any]:
 
     async def _run() -> dict[str, Any]:
         caps = await components.authenticator.read_device_config()
-        fingerprint = await components.transport.observed_fingerprint()
         return {
             "model": caps.model,
             "ui_version": caps.ui_version,
             "certification": caps.certification,
             "feature_flags": caps.flags,
             "mode": caps.mode,
-            "tls_fingerprint_sha256": fingerprint,
-            "breaker": components.breaker.show(),
+            "tls_fingerprint_observed": components.transport.observed_fingerprint,
+            "breaker": components.breaker.status(),
         }
 
     return await run_tool("router_status", _run)
@@ -227,7 +235,7 @@ async def router_check_auth(
             "ui_version": caps.ui_version,
             "feature_flags": caps.flags,
             "certification": caps.certification,
-            "breaker": components.breaker.show(),
+            "breaker": components.breaker.status(),
             "login_attempted": do_login,
             "authenticated": False,
         }
@@ -406,7 +414,7 @@ def create_app(components: Components, *, sampler: PresenceSampler | None = None
 
     @app.tool(name="router_add_dhcp_reservation")
     async def _add_reservation(
-        mac: str, ip: str, name: str, confirm_write: bool = False
+        mac: str, ip: str, name: str, confirm_write: ConfirmWrite = False
     ) -> dict[str, Any]:
         """MUTATES. Add a DHCP address reservation. Refuses a duplicate MAC, an IP
         already reserved for another device, or an IP outside the LAN subnet. Needs
@@ -416,45 +424,47 @@ def create_app(components: Components, *, sampler: PresenceSampler | None = None
         )
 
     @app.tool(name="router_remove_dhcp_reservation")
-    async def _remove_reservation(mac: str, confirm_write: bool = False) -> dict[str, Any]:
+    async def _remove_reservation(mac: str, confirm_write: ConfirmWrite = False) -> dict[str, Any]:
         """MUTATES. Remove a DHCP reservation by MAC. Refused for a protected MAC or
         if no such reservation exists. Double-gated; DRY_RUN sends nothing."""
         return await router_remove_dhcp_reservation(components, mac, confirm_write=confirm_write)
 
     @app.tool(name="router_set_wifi")
-    async def _set_wifi(band: str, enabled: bool, confirm_write: bool = False) -> dict[str, Any]:
+    async def _set_wifi(
+        band: str, enabled: bool, confirm_write: ConfirmWrite = False
+    ) -> dict[str, Any]:
         """MUTATES. Turn a Wi-Fi band (2g|5g) radio on/off. The write body is
         UNVERIFIED until the R0 capture, so a live write is refused with
         R0_UNCONFIRMED; DRY_RUN still shows the planned body. Double-gated."""
         return await router_set_wifi(components, band, enabled, confirm_write=confirm_write)
 
     @app.tool(name="router_reboot")
-    async def _reboot(confirm_write: bool = False) -> dict[str, Any]:
+    async def _reboot(confirm_write: ConfirmWrite = False) -> dict[str, Any]:
         """MUTATES; disruptive. Reboot the router, rate-limited to one per
         ARCHER_ROUTER_REBOOT_MIN_INTERVAL_S. Double-gated; DRY_RUN shows the next
         allowed time and sends nothing."""
         return await router_reboot(components, confirm_write=confirm_write)
 
     @app.tool(name="router_block_device")
-    async def _block(mac: str, confirm_write: bool = False) -> dict[str, Any]:
+    async def _block(mac: str, confirm_write: ConfirmWrite = False) -> dict[str, Any]:
         """MUTATES. Block a client by MAC (access-control black list). Refused for a
         protected MAC. Double-gated; DRY_RUN sends nothing."""
         return await router_block_device(components, mac, confirm_write=confirm_write)
 
     @app.tool(name="router_unblock_device")
-    async def _unblock(mac: str, confirm_write: bool = False) -> dict[str, Any]:
+    async def _unblock(mac: str, confirm_write: ConfirmWrite = False) -> dict[str, Any]:
         """MUTATES. Unblock a client by MAC. Double-gated; DRY_RUN sends nothing."""
         return await router_unblock_device(components, mac, confirm_write=confirm_write)
 
     @app.tool(name="router_set_access_mode")
-    async def _set_access_mode(mode: str, confirm_write: bool = False) -> dict[str, Any]:
+    async def _set_access_mode(mode: str, confirm_write: ConfirmWrite = False) -> dict[str, Any]:
         """MUTATES. Set access-control mode (off|blacklist|whitelist). Whitelist is
         refused unless every protected MAC is already whitelisted. Double-gated."""
         return await router_set_access_mode(components, mode, confirm_write=confirm_write)
 
     @app.tool(name="router_set_client_speed_limit")
     async def _set_speed(
-        mac: str, down_kbps: int, up_kbps: int, confirm_write: bool = False
+        mac: str, down_kbps: int, up_kbps: int, confirm_write: ConfirmWrite = False
     ) -> dict[str, Any]:
         """MUTATES. Set a per-client bandwidth limit in kbps (0 = unlimited). Refused
         for a protected MAC. Double-gated; DRY_RUN sends nothing."""
@@ -464,20 +474,22 @@ def create_app(components: Components, *, sampler: PresenceSampler | None = None
 
     @app.tool(name="router_set_wifi_schedule")
     async def _set_schedule(
-        rules: list[dict[str, Any]] | None = None, confirm_write: bool = False
+        rules: list[dict[str, Any]] | None = None, confirm_write: ConfirmWrite = False
     ) -> dict[str, Any]:
         """MUTATES. Replace the Wi-Fi on/off schedule (enable + rule list). Rule shape
         is INFERRED. Double-gated; DRY_RUN sends nothing."""
         return await router_set_wifi_schedule(components, rules or [], confirm_write=confirm_write)
 
     @app.tool(name="router_isolate_device")
-    async def _isolate(mac: str, isolate: bool, confirm_write: bool = False) -> dict[str, Any]:
+    async def _isolate(
+        mac: str, isolate: bool, confirm_write: ConfirmWrite = False
+    ) -> dict[str, Any]:
         """MUTATES. Isolate (True) or un-isolate (False) a device. Isolating a
         protected MAC is refused. Double-gated; DRY_RUN sends nothing."""
         return await router_isolate_device(components, mac, isolate, confirm_write=confirm_write)
 
     @app.tool(name="router_wol")
-    async def _wol(mac: str, confirm_write: bool = False) -> dict[str, Any]:
+    async def _wol(mac: str, confirm_write: ConfirmWrite = False) -> dict[str, Any]:
         """MUTATES. Send a Wake-on-LAN magic packet to a device by MAC. Double-gated;
         DRY_RUN sends nothing."""
         return await router_wol(components, mac, confirm_write=confirm_write)

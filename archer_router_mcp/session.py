@@ -16,7 +16,7 @@ from urllib.parse import quote
 
 from . import crypto, errors
 from .auth import RouterAuthenticator, Session, merge_levels, parse_json, resolve_envelope
-from .core.config import DeviceSettings
+from .config import DeviceSettings
 from .core.errors import TokenExpired
 from .core.serial import SerialLock
 from .errors import ProtocolError, RouterError, WriteOutcomeUnknown

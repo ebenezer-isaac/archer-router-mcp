@@ -17,6 +17,7 @@ from __future__ import annotations
 import importlib
 import json
 import os
+import time
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
@@ -41,6 +42,11 @@ def errs(core_pkg):
 @pytest.fixture
 def st(core_pkg):
     return importlib.import_module(f"{core_pkg.__name__}.state")
+
+
+@pytest.fixture
+def sl(core_pkg):
+    return importlib.import_module(f"{core_pkg.__name__}.slot")
 
 
 @pytest.fixture
@@ -381,3 +387,206 @@ def test_posix_killed_holder_releases_lock_and_reservation_still_counts(
     assert b.status()["reserved"] == 1
     with pytest.raises(errs.BreakerOpen):
         b.reserve_attempt()
+
+
+# ============================================================================
+# One primitive, every policy. The reservation primitive (ReservationStore named
+# slots + epoch + lock + writability proof) is proven identically for each policy
+# built on it: the login breaker, the generic single-slot (the EXPORT lock, and the
+# switch cycle guard) and the generic min-interval rate limiter (the router reboot
+# limiter). This closes x1c round-2 F1/F5: the export lock's guarantees are the
+# primitive's, now conformed here rather than left to a separate, un-fixed path.
+# ============================================================================
+
+_POLICIES = ["breaker", "single", "interval"]
+
+
+class _Pol:
+    """A uniform handle over a policy so one case can run against all three."""
+
+    def __init__(self, obj, reserve, clear, status, path) -> None:
+        self.obj = obj
+        self.reserve = reserve
+        self.clear = clear
+        self.status = status
+        self.path = path
+
+
+def _policy(
+    kind, bk, sl, state_dir, *, key="pol", clock=None, stale_after_s=3600.0, min_interval_s=0.0
+):
+    clk = clock or time.time
+    if kind == "breaker":
+        o = bk.LoginBreaker(state_dir, key, max_failures=1, clock=clk)
+        return _Pol(o, o.reserve_attempt, o.clear, o.status, o.path)
+    if kind == "single":
+        store = sl.single_slot_store(state_dir, clock=clk)
+        o = sl.SingleSlot(store, key, stale_after_s=stale_after_s, clock=clk)
+        return _Pol(o, o.reserve, o.clear, o.status, o.path)
+    store = sl.min_interval_store(state_dir, clock=clk)
+    o = sl.MinInterval(store, key, min_interval_s=min_interval_s, clock=clk)
+    return _Pol(o, o.reserve, o.clear, o.status, o.path)
+
+
+@pytest.mark.parametrize("kind", _POLICIES)
+def test_policy_admits_one_then_refuses_a_second_in_flight(tmp_path, bk, sl, errs, st, kind):
+    p = _policy(kind, bk, sl, tmp_path)
+    first = p.reserve()
+    with pytest.raises(errs.DeviceError):  # BreakerOpen / PreconditionFailed
+        p.reserve()
+    first.release(st.Outcome.SUCCESS)
+
+
+@pytest.mark.parametrize("kind", _POLICIES)
+def test_policy_unresolved_reservation_is_crash_visible(tmp_path, bk, sl, errs, kind):
+    _policy(kind, bk, sl, tmp_path).reserve()  # handle dropped (crash between reserve/release)
+    # A fresh instance (the next process) on the same dir/key still sees it and refuses.
+    with pytest.raises(errs.DeviceError):
+        _policy(kind, bk, sl, tmp_path).reserve()
+
+
+@pytest.mark.parametrize("kind", _POLICIES)
+def test_policy_clear_then_stale_release_cannot_overadmit(tmp_path, bk, sl, errs, st, kind):
+    p = _policy(kind, bk, sl, tmp_path)
+    res_a = p.reserve()
+    p.clear()
+    res_b = p.reserve()  # the one legitimate post-clear holder
+    assert res_a.release(st.Outcome.SUCCESS) is True  # stale: the slot it owned is gone
+    with pytest.raises(errs.DeviceError):
+        p.reserve()  # res_b still holds the single slot
+    assert res_b is not None
+
+
+@pytest.mark.parametrize("kind", _POLICIES)
+def test_policy_unwritable_store_fails_closed_before_admit(tmp_path, bk, sl, errs, kind):
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a directory", encoding="utf-8")
+    p = _policy(kind, bk, sl, blocker / "state")
+    with pytest.raises(errs.DeviceError):  # BreakerOpen / StateUnavailable, never fail-open
+        p.reserve()
+    assert not (blocker / "state").exists()
+
+
+@pytest.mark.parametrize("kind", _POLICIES)
+def test_policy_status_never_blocks_under_lock_contention(tmp_path, bk, sl, st, kind):
+    # x1c round-2 F4: status() reads the atomic file WITHOUT the lock, so a --show /
+    # healthcheck during any concurrent reserve/release neither blocks nor misreports.
+    p = _policy(kind, bk, sl, tmp_path)
+    p.reserve().release(st.Outcome.SUCCESS)  # materialise the store + lock file
+    lock_path = p.path.with_name(p.path.stem + ".lock")
+    fd = _lock_exclusive(lock_path)
+    try:
+        start = time.monotonic()
+        p.status()  # must not raise
+        assert time.monotonic() - start < 0.2
+    finally:
+        _unlock_and_close(fd)
+
+
+def _lock_exclusive(lock_path: Path) -> int:
+    fd = os.open(lock_path, os.O_RDWR)
+    if os.name == "nt":
+        import msvcrt
+
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+    else:
+        import fcntl
+
+        fcntl.flock(fd, fcntl.LOCK_EX)
+    return fd
+
+
+def _unlock_and_close(fd: int) -> None:
+    if os.name == "nt":
+        import msvcrt
+
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    os.close(fd)
+
+
+# ---- F1 (x1c r2): the EXPORT lock's over-admit, closed by named-slot reclaim --
+
+
+def test_single_slot_old_holder_release_cannot_free_the_current_holder(tmp_path, bk, sl, st):
+    now = [1000.0]
+    s = sl.SingleSlot(
+        sl.single_slot_store(tmp_path, clock=lambda: now[0]),
+        "export-dev",
+        stale_after_s=60.0,
+        clock=lambda: now[0],
+    )
+    res_a = s.reserve()
+    assert s.status()["in_flight"] is True
+    now[0] = 2000.0  # A now looks stale (older than 60s)
+    res_b = s.reserve()  # B reclaims the slot; B is the CURRENT, fresh, legitimate holder
+    assert s.status()["in_flight"] is True
+    # A's release owns a slot that was reclaimed away: it MUST be a stale no-op, never a
+    # decrement of B's live slot (round-1 F1 / x1c r2 F1).
+    assert res_a.release(st.Outcome.SUCCESS) is True
+    assert s.status()["in_flight"] is True  # B still holds the single slot
+    assert res_b is not None
+
+
+# ---- F3 (x1c r2): the epoch is a monotonic high-water mark --------------------
+
+
+def test_epoch_is_monotonic_across_a_corrupt_recovery(tmp_path, bk):
+    b = bk.LoginBreaker(tmp_path, "dev", max_failures=1)
+    b.clear()
+    b.clear()
+    b.clear()
+    advanced = b.status()["epoch"]
+    assert advanced == 3
+    b.path.write_text("{ not valid json", encoding="utf-8")  # out-of-band corruption
+    b.clear()  # operator recovery
+    assert b.status()["epoch"] > advanced  # never repeats a previously-issued value
+
+
+# ---- F2 (x1c r2): clear() is one locked section; no lost epoch update ---------
+
+
+def _clear_worker(args: tuple[str, str, str]) -> int:
+    pkg, state_dir, key = args
+    breaker = importlib.import_module(f"{pkg}.breaker")
+    b = breaker.LoginBreaker(Path(state_dir), key, max_failures=1)
+    b.clear()
+    return b.status()["epoch"]
+
+
+def test_concurrent_clears_bump_the_epoch_monotonically(tmp_path, bk, pkg_path):
+    # Each clear is one locked load->bump->write over a persisted high-water mark, so N
+    # concurrent clears advance the epoch by exactly N - no two collapse to one bump
+    # (the x1c r2 F2 lost-update the old two-lock clear suffered).
+    bk.LoginBreaker(tmp_path, KEY, max_failures=1).clear()  # baseline epoch 1
+    n = 8
+    jobs = [(pkg_path, str(tmp_path), KEY)] * n
+    with ProcessPoolExecutor(max_workers=n) as pool:
+        list(pool.map(_clear_worker, jobs))
+    assert bk.LoginBreaker(tmp_path, KEY, max_failures=1).status()["epoch"] == 1 + n
+
+
+# ---- MinInterval: the reserve-before-act rate-limit window --------------------
+
+
+def test_min_interval_enforces_the_window_and_only_success_consumes_it(tmp_path, bk, sl, errs, st):
+    now = [1000.0]
+    m = sl.MinInterval(
+        sl.min_interval_store(tmp_path, clock=lambda: now[0]),
+        "reboot-dev",
+        min_interval_s=100.0,
+        clock=lambda: now[0],
+    )
+    m.reserve().release(st.Outcome.SUCCESS)  # completes at t=1000, window starts
+    with pytest.raises(errs.PreconditionFailed):
+        m.reserve()  # within the 100s window
+    # An aborted attempt (not carried out) does NOT consume the window.
+    now[0] = 1200.0
+    m.reserve().release(st.Outcome.ABORT)
+    now[0] = 1250.0  # last COMPLETED action was t=1000, so > 100s has elapsed
+    m.reserve().release(st.Outcome.SUCCESS)  # allowed

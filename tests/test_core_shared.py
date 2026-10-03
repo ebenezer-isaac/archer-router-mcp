@@ -3,7 +3,7 @@
 The router uses a subset of ``core`` directly, but the whole template is shipped and
 hashed (the identity test), so these exercise the shared pieces the router's own
 suites do not otherwise reach: the core config loaders/validators, ``GuardedWriter``,
-the ``AtomicStateFile``/``ReservationStore`` primitives, the ``JsonHttpTransport``
+the ``read_state``/``write_state``/``ReservationStore`` primitives, the ``JsonHttpTransport``
 pinning backend, and the error ``details()`` payloads.
 """
 
@@ -15,7 +15,7 @@ from typing import Any, Literal
 import httpcore
 import httpx
 import pytest
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict
 
 from archer_router_mcp.core import config as core_config
 from archer_router_mcp.core.errors import (
@@ -29,10 +29,12 @@ from archer_router_mcp.core.errors import (
 )
 from archer_router_mcp.core.serial import GuardedWriter
 from archer_router_mcp.core.state import (
-    AtomicStateFile,
     Outcome,
     ReservationStore,
+    SlotLedger,
     ensure_dir,
+    read_state,
+    write_state,
 )
 from archer_router_mcp.core.transport import (
     JsonHttpTransport,
@@ -138,16 +140,18 @@ async def test_guarded_writer_ungated_operation_runs_with_writes_off() -> None:
 # --------------------------------------------------------------- state primitives
 
 
-class _Ledger(BaseModel):
+class _Ledger(SlotLedger):
+    """A minimal v1.3.0 ledger: the shared epoch + named slots, plus a policy field."""
+
     model_config = ConfigDict(strict=True, extra="forbid")
 
     version: Literal[1] = 1
-    reserved: int = Field(ge=0)
-    note: str
+    key: str
+    note: str = "x"
 
 
-def _fresh() -> _Ledger:
-    return _Ledger(reserved=0, note="x")
+def _fresh(key: str, epoch: int) -> _Ledger:
+    return _Ledger(key=key, epoch=epoch, reservations={}, last_update=0.0, note="x")
 
 
 def test_ensure_dir_rejects_a_file_in_the_path(tmp_path: Path) -> None:
@@ -159,50 +163,78 @@ def test_ensure_dir_rejects_a_file_in_the_path(tmp_path: Path) -> None:
         ensure_dir(f / "sub")  # a parent is a regular file
 
 
-def test_atomic_state_file_write_read_unlink(tmp_path: Path) -> None:
-    asf: AtomicStateFile[_Ledger] = AtomicStateFile(tmp_path / "nested" / "s.json", _Ledger)
-    assert asf.read() is None
-    asf.write(_Ledger(reserved=2, note="n"))
-    assert asf.read().reserved == 2
-    asf.unlink()
-    assert asf.read() is None
-    asf.unlink()  # missing is fine
+def test_read_write_state_roundtrip(tmp_path: Path) -> None:
+    p = tmp_path / "nested" / "s.json"
+    assert read_state(p, _Ledger) is None  # absent -> None (creates nothing)
+    write_state(p, _Ledger(key="k", epoch=1, reservations={}, last_update=1.0, note="n"))
+    got = read_state(p, _Ledger)
+    assert got is not None
+    assert got.note == "n"
+    assert got.epoch == 1
 
 
-def test_atomic_state_file_read_failures(tmp_path: Path) -> None:
+def test_read_state_failures(tmp_path: Path) -> None:
     as_dir = tmp_path / "dir.json"
     as_dir.mkdir()
     with pytest.raises(StateUnavailable):
-        AtomicStateFile(as_dir, _Ledger).read()  # reading a directory -> OSError
+        read_state(as_dir, _Ledger)  # reading a directory -> OSError
     bad = tmp_path / "bad.json"
-    bad.write_text('{"reserved": "x", "note": "n", "version": 1}', encoding="utf-8")
+    bad.write_text(
+        '{"version": 1, "key": "k", "note": "n", "epoch": "x", '
+        '"reservations": {}, "last_update": 1.0}',
+        encoding="utf-8",
+    )
     with pytest.raises(StateUnavailable):
-        AtomicStateFile(bad, _Ledger).read()  # wrong type, strict schema
+        read_state(bad, _Ledger)  # wrong type, strict schema
+    not_json = tmp_path / "nj.json"
+    not_json.write_text("not json", encoding="utf-8")
+    with pytest.raises(StateUnavailable):
+        read_state(not_json, _Ledger)  # unparseable
+    not_obj = tmp_path / "arr.json"
+    not_obj.write_text("[1, 2, 3]", encoding="utf-8")
+    with pytest.raises(StateUnavailable):
+        read_state(not_obj, _Ledger)  # a JSON array is not an object
 
 
-def test_atomic_state_file_write_fails_on_unwritable(tmp_path: Path) -> None:
+def test_write_state_fails_on_unwritable(tmp_path: Path) -> None:
     f = tmp_path / "file"
-    f.write_text("x", encoding="utf-8")
+    f.write_text("x", encoding="utf-8")  # a regular file where a parent dir must be
     with pytest.raises(StateUnavailable):
-        AtomicStateFile(f / "s.json", _Ledger).write(_Ledger(reserved=0, note="n"))
+        write_state(f / "s.json", _Ledger(key="k", epoch=0, reservations={}, last_update=0.0))
 
 
 def test_reservation_store_reserve_release_cycle(tmp_path: Path) -> None:
-    store: ReservationStore[_Ledger] = ReservationStore(tmp_path, "t", _Ledger, make_default=_fresh)
+    store: ReservationStore[_Ledger] = ReservationStore(tmp_path, _Ledger, make_default=_fresh)
 
-    def admit(ledger: _Ledger) -> _Ledger:
-        return ledger.model_copy(update={"reserved": ledger.reserved + 1})
+    def admit(ledger: _Ledger) -> None:
+        # One slot at a time: refuse a second concurrent reservation.
+        if ledger.reservations:
+            raise StateUnavailable("already reserved")
 
-    def resolve(ledger: _Ledger, outcome: Outcome, kwargs: dict[str, Any]) -> _Ledger:
-        return ledger.model_copy(update={"reserved": max(0, ledger.reserved - 1)})
+    def mutate(ledger: _Ledger, outcome: Outcome, kwargs: dict[str, Any]) -> _Ledger:
+        return ledger.model_copy(update={"note": outcome.value})
 
-    res = store.reserve(admit, resolve)
-    assert store.load().reserved == 1
+    res = store.reserve("t", admit, mutate, meta={"pid": 1})
+    live = store.load("t")
+    assert live is not None and live.reserved == 1  # the insert IS the admission
     assert res.resolved is False
     res.release(Outcome.SUCCESS)
-    assert store.load().reserved == 0
+    done = store.load("t")
+    assert done is not None and done.reserved == 0  # the release frees only its own slot
+    assert done.note == "success"  # mutate applied the outcome
     assert res.resolved is True
-    res.release(Outcome.SUCCESS)  # double release is a no-op
+    assert res.release(Outcome.SUCCESS) is False  # double release is a no-op (not stale)
+
+
+def test_reservation_store_clear_bumps_epoch_and_recovers(tmp_path: Path) -> None:
+    store: ReservationStore[_Ledger] = ReservationStore(tmp_path, _Ledger, make_default=_fresh)
+    store.reserve("t", lambda ledger: None)  # leave one slot in flight (never released)
+    assert store.load("t").reserved == 1
+    store.clear("t")  # one locked section: fresh ledger at a bumped epoch
+    cleared = store.load("t")
+    assert cleared is not None
+    assert cleared.reserved == 0
+    assert cleared.epoch >= 1  # monotonic high-water mark advanced
 
 
 # --------------------------------------------------------------- transport pinning

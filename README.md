@@ -347,6 +347,17 @@ R = read-only · W = mutating (double-gated). Inferred write bodies are gated by
 | `router_poll_presence` | R | One presence sample → append join/leave/rename events to the local log. Read-only against the router. |
 | `router_client_history` | R | Query the local presence log (`since`, `mac`, `limit`). No router I/O. |
 
+> **AX53 (UI 1.11.0) client-list note.** `router_list_clients` merges five device
+> lists, but four of those callbacks — `smart_network?form=game_accelerator`,
+> `easymesh_network?form=mesh_sclient_list_all`, `status?form=network_map` and
+> `nat?form=client_list` — are **absent on this firmware** (the router answers
+> `no such callback`); only `dhcps?form=client` is present. **`router_list_dhcp_leases`
+> is the reliable client source on the AX53.** `router_get_access_control` likewise
+> reads `access_control?form=*` callbacks that this firmware does not expose under that
+> module name. These were confirmed by reversing the router's own web-UI JS (the four
+> form strings appear in no shipped JS chunk). The block/unblock/mode **writes** use the
+> verified `access_control` write path and are unaffected.
+
 ### Writes (double-gated)
 
 | Tool | R/W | Body | What it does |

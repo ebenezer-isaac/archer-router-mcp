@@ -16,6 +16,16 @@ from ..normalize import as_float, as_int, decode_name, first_present, normalize_
 from .models import ClientInfo
 
 # Source name -> (path, form, operation, is_live). Precedence = list order.
+#
+# KNOWN FIRMWARE GAP (AX53, UI 1.11.0): four of these callbacks do NOT exist on this
+# firmware and the router answers "no such callback" for them: game_accelerator
+# (smart_network), mesh_sclient_list_all (easymesh_network), network_map (status) and
+# nat/client_list. Confirmed by reversing the router web-UI JS — none of those form
+# strings appear in any shipped JS chunk. Only the ``dhcp`` source
+# (``admin/dhcps?form=client``) is present, so ``router_list_dhcp_leases`` is the reliable
+# client source on the AX53. Replace the dead entries here with the correct AX53 callbacks
+# once they are reversed; until then ``router_list_clients`` depends on firmware that
+# exposes these forms.
 SOURCE_READS: tuple[tuple[str, str, str, str, bool], ...] = (
     ("game_accelerator", "admin/smart_network", "game_accelerator", "loadDevice", True),
     ("mesh", "admin/easymesh_network", "mesh_sclient_list_all", "read", True),

@@ -185,13 +185,39 @@ def _check_in_lan_subnet(lan_raw: Any, cip: str) -> None:
     )
 
 
+def _remove_params(index: int, row: dict[str, Any]) -> dict[str, Any]:
+    """Build the reservation-remove params (``operation: "remove"``).
+
+    VERIFIED LIVE against the AX53 (fw 1.11.0): the reservation remove requires BOTH
+    ``key`` and ``index``, where **``key`` is the row's table index as a STRING** and
+    ``index`` is the same value as an int::
+
+        {"operation": "remove", "key": "3", "index": 3}
+        -> {"success": true, "key": "3", "index": "3"}
+
+    The rows from ``reservation load`` carry no server-side key field (just
+    ``{mac, comment, hostname, enable, ip}``), so the web UI's ``e.key`` resolves to the
+    Vue list index. Sending ``key: null`` (the original bug) OR index-only both return
+    HTTP 500 on this firmware — ``key`` must be present and equal ``str(index)``.
+
+    If a firmware ever exposes a real server-side ``key`` on the row, prefer it.
+    """
+    key = row.get("key")
+    if key is None or (isinstance(key, str) and not key.strip()):
+        key = str(index)
+    return {"key": key, "index": index}
+
+
 async def router_remove_dhcp_reservation(
     components: Components, mac: str, *, confirm_write: bool = False
 ) -> dict[str, Any]:
     """Remove a DHCP reservation by MAC (``dhcps?form=reservation`` remove). MUTATES.
 
-    Loads the table, finds the row for ``mac``, and removes it by its ``key`` and
-    ``index``. Refused with ``PROTECTED_TARGET`` if ``mac`` is protected, and with
+    Loads the table, finds the row for ``mac``, and removes it by sending BOTH
+    ``key`` and ``index``, where ``key`` is the row's table index as a STRING (the
+    AX53 reservation rows carry no server-side key, so ``key`` == ``str(index)``;
+    see :func:`_remove_params`). Refused with ``PROTECTED_TARGET`` if ``mac`` is
+    protected, and with
     ``PRECONDITION_FAILED`` if no such reservation exists. Double-gated; returns
     before/after lists.
     """
@@ -200,14 +226,23 @@ async def router_remove_dhcp_reservation(
         return valid_mac(mac)
 
     async def dry() -> dict[str, Any]:
-        cmac = prep()
+        prep()
         return {
             "dry_run": {
                 "path": "admin/dhcps",
                 "form": "reservation",
                 "operation": "remove",
-                "params": {"mac": cmac},
-                "note": "key and index are resolved from a live reservation load at write time",
+                "params": {
+                    "key": "<str(row index) resolved from a live reservation load>",
+                    "index": "<row index resolved from a live reservation load>",
+                },
+                "note": (
+                    "The row is removed by sending BOTH key and index, where key is the "
+                    "row's table index as a STRING (verified live on the AX53: a null or "
+                    "index-only key returns HTTP 500). The index is resolved from a fresh "
+                    "load at write time; a firmware exposing a real server-side key uses "
+                    "that key instead."
+                ),
             }
         }
 
@@ -218,15 +253,13 @@ async def router_remove_dhcp_reservation(
         cmac = prep()
         before = await _load(session)
         index, row = find_by_mac(before, cmac)
-        if row is None:
+        if index is None or row is None:
             raise PreconditionFailed(
                 f"No DHCP reservation found for {cmac}.",
                 reason="no_such_mac",
                 context={"mac": cmac},
             )
-        request = plan(
-            "admin/dhcps", "reservation", "remove", {"key": row.get("key"), "index": index}
-        )
+        request = plan("admin/dhcps", "reservation", "remove", _remove_params(index, row))
         after, outcome = await commit_write(
             session,
             request,

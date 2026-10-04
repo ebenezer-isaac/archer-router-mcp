@@ -216,28 +216,105 @@ async def test_add_reservation_live_roundtrip(tmp_path) -> None:
         await c.aclose()
 
 
+# The AX53 (UI 1.11.0) reservation load returns rows with NO ``key`` field; the real
+# web UI deletes a row by sending BOTH ``key`` and ``index`` where ``key`` is the row's
+# table index as a STRING (verified live: ``{operation:remove, key:"3", index:3}``).
+# These rows mirror that raw (keyless) shape so the tests exercise the key=str(index) path.
+AX53_RESERVATIONS = {
+    "dhcps:reservation": {
+        "rows": [
+            {
+                "mac": "00:00:5e:00:53:09",
+                "comment": "Other",
+                "hostname": "Other",
+                "enable": "on",
+                "ip": "192.0.2.9",
+            },
+            {
+                "mac": "00:00:5e:00:53:01",
+                "comment": "P",
+                "hostname": "P",
+                "enable": "on",
+                "ip": "192.0.2.21",
+            },
+        ],
+        "max_rules": 32,
+        "seq": 0,
+    }
+}
+
+
 async def test_remove_reservation_live_roundtrip(tmp_path) -> None:
+    fake, c = _components(tmp_path, state={k: dict(v) for k, v in AX53_RESERVATIONS.items()})
+    try:
+        env = await server.router_remove_dhcp_reservation(c, DEV, confirm_write=True)
+        assert env["success"] is True
+        assert [r["mac"] for r in env["data"]["before"]] == [
+            "00:00:5E:00:53:09",
+            "00:00:5E:00:53:01",
+        ]
+        # Only the targeted MAC is gone; the other reservation is untouched.
+        assert [r["mac"] for r in env["data"]["after"]] == ["00:00:5E:00:53:09"]
+        assert fake.write_posts == 1
+    finally:
+        await c.aclose()
+
+
+async def test_remove_reservation_sends_key_str_index(tmp_path) -> None:
+    """RW: the remove op sent to an AX53 carries BOTH ``key`` and ``index``, where ``key`` is
+    the row's table position as a STRING (verified live: ``key:null`` and index-only both 500)."""
+    fake, c = _components(tmp_path, state={k: dict(v) for k, v in AX53_RESERVATIONS.items()})
+    try:
+        env = await server.router_remove_dhcp_reservation(c, DEV, confirm_write=True)
+        assert env["success"] is True
+        # DEV is the 2nd row -> index 1, key "1". The "key" field is redacted in the
+        # returned envelope (it is a secret-bearing key name), but index is intact.
+        assert env["data"]["applied"]["operation"] == "remove"
+        assert env["data"]["applied"]["params"]["index"] == 1
+        assert env["data"]["applied"]["params"]["key"] == "<redacted>"
+        # The verified key=str(index) shape reaches the fake router on the wire.
+        removes = [p for (mod, frm, op, p) in fake.mutations if op == "remove"]
+        assert removes == [{"operation": "remove", "key": "1", "index": 1}]
+        assert all(p.get("key") == str(p.get("index")) for p in removes)
+        # The plaintext body carries operation, key and index in that order.
+        assert env["data"]["applied"]["body"] == "operation=remove&key=1&index=1"
+    finally:
+        await c.aclose()
+
+
+async def test_remove_reservation_keeps_server_key_when_present(tmp_path) -> None:
+    """A firmware that DOES expose a real server-side ``key`` keeps the by-key path."""
     state = {
         "dhcps:reservation": {
             "rows": [
-                {
-                    "key": "r1",
-                    "mac": "00:00:5e:00:53:01",
-                    "ip": "192.0.2.21",
-                    "hostname": "P",
-                    "enable": "on",
-                }
+                {"key": "r7", "mac": "00:00:5e:00:53:01", "ip": "192.0.2.21", "hostname": "P"}
             ],
             "max_rules": 32,
             "seq": 1,
         }
     }
-    _fake, c = _components(tmp_path, state=state)
+    fake, c = _components(tmp_path, state=state)
     try:
         env = await server.router_remove_dhcp_reservation(c, DEV, confirm_write=True)
         assert env["success"] is True
-        assert [r["mac"] for r in env["data"]["before"]] == ["00:00:5E:00:53:01"]
+        # "key" is redacted in the returned envelope, but the real key reaches the wire.
+        removes = [p for (mod, frm, op, p) in fake.mutations if op == "remove"]
+        assert removes == [{"operation": "remove", "key": "r7", "index": 0}]
         assert env["data"]["after"] == []
+    finally:
+        await c.aclose()
+
+
+async def test_remove_reservation_dry_run_sends_nothing_shows_key_and_index(tmp_path) -> None:
+    fake, c = _components(tmp_path, dry_run=True, allow_writes=False)
+    try:
+        env = await server.router_remove_dhcp_reservation(c, DEV, confirm_write=True)
+        plan = env["data"]["dry_run"]
+        assert plan["operation"] == "remove"
+        # The verified remove shape advertises BOTH key and index.
+        assert "key" in plan["params"]
+        assert "index" in plan["params"]
+        assert fake.write_posts == 0
     finally:
         await c.aclose()
 

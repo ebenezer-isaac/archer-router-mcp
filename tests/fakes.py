@@ -358,7 +358,17 @@ class FakeRouter:
         elif operation == "remove":
             key = params.get("key")
             mac = params.get("mac")
-            entry["rows"] = [r for r in rows if not self._row_matches(r, key, mac)]
+            index = params.get("index")
+            # AX53 reservation rows carry no server-side key, so the client sends
+            # key == str(index): no row matches that key, and the real router deletes
+            # the row at the given table index. A firmware that DOES expose a real
+            # server key (or a mac) matches by that instead. Mirror both faithfully:
+            # match by key/mac when a row actually matches, else delete by index.
+            matched = any(self._row_matches(r, key, mac) for r in rows)
+            if matched:
+                entry["rows"] = [r for r in rows if not self._row_matches(r, key, mac)]
+            elif isinstance(index, int):
+                entry["rows"] = [r for i, r in enumerate(rows) if i != index]
         elif operation == "update":
             key = params.get("key")
             new = params.get("new") or {}
